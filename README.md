@@ -103,11 +103,13 @@ Open **Admin** to export `.bpao` backups, import new sentences, import and repla
 existing sentences, view library statistics, or clear the library after a second
 confirmation. Imports validate format, per-clip size and SHA-256 checksums.
 
-There is **no 512 MiB whole-backup cap**. This is not unlimited storage or a
-streaming importer: import reads the whole JSON/Base64 file, so backups larger
-than about 512 MiB can still fail. Export builds the backup entry by entry without
-one library-sized string. Base64 enlarges backups; available memory, disk space
-and browser storage quota remain practical limits.
+There is **no 512 MiB whole-backup cap**. Import reads and validates entries
+without loading the whole file into one string, then saves clips in batches.
+Checking and saving progress is shown. If import stops, the message reports how
+many entries were saved; import the same file again with the same button to
+finish. Export also builds the backup entry by entry.
+The `.bpao` format is unchanged. Base64 enlarges backups; the **50 MiB per-clip
+limit**, available memory, disk space and browser storage quota remain practical limits.
 
 **Compress Audio** encodes saved overrides locally as mono Opus at a target
 64 kbps: Ogg/Opus in Firefox and WebM/Opus in Chrome. It uses neither a microphone

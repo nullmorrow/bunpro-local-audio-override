@@ -52,10 +52,13 @@ def main():
         # Only the injected copy exposes internals and disables automatic observation.
         assert script.count('DB_BLOCKED_TIMEOUT_MS: 10000,') == 1
         script = script.replace('DB_BLOCKED_TIMEOUT_MS: 10000,', 'DB_BLOCKED_TIMEOUT_MS: 100,')
+        assert script.count('IMPORT_BATCH_BYTES: 32 * 1024 * 1024,') == 1
+        script = script.replace('IMPORT_BATCH_BYTES: 32 * 1024 * 1024,', 'IMPORT_BATCH_BYTES: 1024,')
         script = script.replace('    installObserver();', '''
             window.__storageTest = {state, CONFIG, openAudioDb, dbGet, dbPut, dbGetAll, dbClear, sha256Hex,
-                serializeBackupEntry, parseBackupFile, handleExport, createPanel, renderPanel,
-                setRecordingEnabled, setUiLanguage, t, formatBytes, JSON, IDBFactory, indexedDB};
+                serializeBackupEntry, indexBackupFile, scanBackupFile, readBackupEntry, handleImport, handleExport, createPanel, renderPanel,
+                setRecordingEnabled, setUiLanguage, t, formatBytes, JSON, IDBFactory, IDBObjectStore, indexedDB,
+                setAutoCompressionEnabled, handleCompressAudio};
         ''')
         driver.execute_script(script)
         driver.execute_script((root / 'tests/storage_regression.js').read_text(encoding='utf-8'))

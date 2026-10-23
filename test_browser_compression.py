@@ -54,7 +54,7 @@ def main():
         script = script.replace('    installObserver();', '''
             window.__compressionTest = {state, CONFIG, dbPut, dbGet, dbClear, sha256Hex,
                 handleCompressAudio, createPanel, renderPanel, serializeBackupEntry,
-                parseBackupFile, dbReplaceCompressed, setRecordingEnabled, setUiLanguage,
+                scanBackupFile, readBackupEntry, dbReplaceCompressed, setRecordingEnabled, setUiLanguage,
                 ensurePanelPlacement, positionPanel, showRecordingError, showRecordingStatus, renderMessage,
                 isAutoCompressionEnabled, setAutoCompressionEnabled, saveOverride, handleImport,
                 dbPutMany, handleSave};

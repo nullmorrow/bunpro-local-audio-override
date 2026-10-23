@@ -21,7 +21,7 @@ v0.6.1.5 将浏览器存储版的音频管理功能与口语练习录音整合�
 - 提供 `.bpao` 数据库导出、导入、覆盖导入、完整性校验和清空功能。
 - 提供 **Compress Audio / 压缩音频**，在浏览器中批量压缩已保存的逐句音频，并显示进度和节省空间。
 - 提供默认关闭、会记住选择的“自动压缩新音频”开关，用于之后保存或导入的音频。
-- `.bpao` 导入、导出不再设置 512 MiB 的整包大小上限。
+- `.bpao` 导入、导出逐条处理，不再一次读取整个文件，也不设置 512 MiB 的整包大小上限；50 MiB 单音频上限、磁盘空间和浏览器存储配额仍然适用。
 - 兼容 BunPro 旧版 Review 结构以及 2026 年 9 月启用的新版页面结构。
 - 界面支持 English、简体中文、繁體中文、Español、Bahasa Indonesia、Français 和日本語。
 
@@ -163,7 +163,7 @@ v0.6.1.3 进一步处理连续按 O 的情况：旧回放和旧录音停止操�
 
 备份包含句子、原始文件名、MIME 类型、更新时间、SHA-256 校验值和 Base64 编码的音频数据。Base64 会让备份文件比原始音频总大小更大。
 
-v0.6.1.1 不再限制单个 `.bpao` 备份的总大小。v0.6.1.5 导出逐条构建备份，不再拼接整个库的 JSON 字符串；导入仍会一次读取完整 JSON/Base64 文件，超过约 512 MiB 的备份仍可能失败。实际可处理的大小取决于可用内存，保存和恢复还受到磁盘空间与浏览器站点存储配额影响。旧版 v0.6.0/v0.6.1 仍可能拒绝超过 512 MiB 的备份，恢复大备份前请升级。
+v0.6.1.6 导入会逐条读取并完整校验备份，再分批保存，不再一次读取整个文件；导出也逐条构建备份。校验和保存期间会显示进度，中途失败或取消会显示已保存的词条数；用同一个按钮重新导入同一文件即可完成剩余部分。`.bpao` 格式不变，50 MiB 单音频上限、可用内存、磁盘空间和浏览器站点存储配额仍然适用。旧版导入仍可能受整包大小或单个字符串大小限制，恢复大备份前请升级。
 
 ### Compress Audio / 压缩音频
 
@@ -209,7 +209,7 @@ Admin 中的自动压缩开关默认关闭，选择会保存在当前浏览器�
 - 导入前会验证备份格式版本和每个条目。
 - 每段音频会进行 SHA-256 完整性校验。
 - 单个音频仍受 50 MiB 上限限制。
-- v0.6.1.1 不再设置整包大小上限；内存、磁盘和浏览器存储配额仍然适用。
+- 导入逐条读取并校验、分批保存，不再一次读取整个文件；内存、磁盘和浏览器存储配额仍然适用。
 - 普通 **Import / 导入** 不会覆盖已有句子。
 
 `.bpao` 当前格式标识为 `bunpro-local-audio-override`，格式版本为 `1`。
@@ -286,6 +286,6 @@ New in **0.6.1.1**: **Admin → Compress Audio** converts saved sentence audio l
 
 An optional **automatic compression** setting applies the same process to newly selected clips on Save and incoming clips on Import or Import & Replace. It is off by default and remembers your choice. Only clips that will actually be written are processed; turning it on does not recompress the existing library. If compression fails or saves too little space, the original incoming audio is used. Disable this setting before importing a backup if you want to restore its original audio bytes exactly.
 
-The 512 MiB whole-backup cap has been removed from the script. The 50 MiB per-clip limit remains. Export builds the backup entry by entry without one library-sized JSON string. Import still reads the whole JSON/Base64 file, so backups larger than about 512 MiB can still fail. Available memory, disk space, and browser storage quota determine practical capacity.
+There is no 512 MiB whole-backup cap. Import reads and validates entries without loading the whole file into one string, then saves clips in batches with checking and saving progress. If import stops, the message reports how many entries were saved; import the same file again with the same button to finish. Export also builds the backup entry by entry. The `.bpao` format is unchanged. The 50 MiB per-clip limit, available memory, disk space and browser storage quota determine practical capacity.
 
 Version 0.6.1.5 retains support for both legacy and September 2026 BunPro review layouts. It also tracks BunPro audio objects that Firefox keeps outside the DOM, allowing local overrides to follow BunPro playback rates such as 75% and 85%. The 0.6.1 fix is retained: after an O-key recording review ends naturally, the next P press starts a new playback-and-recording cycle immediately. Disable every older or duplicate copy of the script before use.

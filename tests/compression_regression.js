@@ -3,6 +3,10 @@ window.runCompressionRegression = async function () {
     const api = window.__compressionTest;
     const { state, dbPut, dbGet, dbClear, sha256Hex, handleCompressAudio } = api;
     const assert = (condition, message) => { if (!condition) throw new Error(message); };
+    async function parseBackup(file) {
+        const { descriptors } = await api.scanBackupFile(file);
+        return Promise.all(descriptors.map(item => api.readBackupEntry(file, item.range, item.sha256)));
+    }
     const checks = [];
     const check = (condition, message) => { assert(condition, message); checks.push(message); };
     window.confirm = () => true;
@@ -105,12 +109,12 @@ window.runCompressionRegression = async function () {
     const backup = new File([JSON.stringify({format:api.CONFIG.BACKUP_FORMAT, formatVersion:1, entries:[item]})], 'test.bpao');
     // Exercise the former rejection branch without allocating a >512 MiB fixture.
     Object.defineProperty(backup, 'size', { value: 512 * 1024 * 1024 + 1 });
-    const restored = await api.parseBackupFile(backup);
+    const restored = await parseBackup(backup);
     check(restored[0].sha256 === compressed.sha256 && restored[0].compression.sha256 === compressed.sha256,
         'Backup round-trip retains bytes/marker and no longer rejects the old 512 MiB boundary');
     item.sha256 = '0'.repeat(64);
     let checksumRejected = false;
-    try { await api.parseBackupFile(new File([JSON.stringify({format:api.CONFIG.BACKUP_FORMAT,formatVersion:1,entries:[item]})], 'bad.bpao')); }
+    try { await parseBackup(new File([JSON.stringify({format:api.CONFIG.BACKUP_FORMAT,formatVersion:1,entries:[item]})], 'bad.bpao')); }
     catch (_) { checksumRejected = true; }
     check(checksumRejected, 'Backup checksum rejection still works');
 

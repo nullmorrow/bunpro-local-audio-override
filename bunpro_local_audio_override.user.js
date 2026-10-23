@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BunPro Local Audio Override
 // @namespace    bunpro.local-audio-override.serverless
-// @version      0.6.1.5
+// @version      0.6.1.6
 // @description  Store per-sentence audio overrides in your browser and practise speaking with P-to-record / O-to-review. No local server or upload required.
 // @description:zh-CN  把逐句自定义音频保存在浏览器中，在 BunPro 复习时播放，并通过 P 键录音、O 键回听。无需本地服务，也不会上传音频。
 // @description:zh-TW  把逐句自訂音訊保存在瀏覽器中，在 BunPro 複習時播放，並透過 P 鍵錄音、O 鍵回聽。無需本機服務，也不會上傳音訊。
@@ -24,11 +24,11 @@
     }
     try {
         Object.defineProperty(window, ACTIVE_INSTANCE_KEY, {
-            value: '0.6.1.5',
+            value: '0.6.1.6',
             configurable: true,
         });
     } catch {
-        window[ACTIVE_INSTANCE_KEY] = '0.6.1.5';
+        window[ACTIVE_INSTANCE_KEY] = '0.6.1.6';
     }
 
     const CONFIG = Object.freeze({
@@ -40,7 +40,11 @@
         BACKUP_FORMAT: 'bunpro-local-audio-override',
         BACKUP_FORMAT_VERSION: 1,
         BACKUP_EXTENSION: '.bpao',
-        SCRIPT_VERSION: '0.6.1.5',
+        BACKUP_READ_CHUNK_BYTES: 8 * 1024 * 1024,
+        BACKUP_ENTRY_MAX_BYTES: Math.ceil(50 * 1024 * 1024 / 3) * 4 + 1024 * 1024,
+        BACKUP_MEMBER_MAX_BYTES: 1024 * 1024,
+        IMPORT_BATCH_BYTES: 32 * 1024 * 1024,
+        SCRIPT_VERSION: '0.6.1.6',
         CLEAN_CONFIRM_TIMEOUT_MS: 10000,
         COMPRESSION_START_TIMEOUT_MS: 10000,
         DEFAULT_FALLBACK_RATE: 1.0,
@@ -601,6 +605,10 @@
             exportComplete: 'Exported {count} clips ({size}).',
             exportFailed: 'Export failed: {error}',
             importing: 'Reading and validating backup…',
+            importCheckingProgress: 'Checking backup… {done}/{total}',
+            importWritingProgress: 'Saving backup… {done}/{total}',
+            importPartialFailed: 'Import stopped after saving {committed}/{total} entries: {error}. Import the same file again with the same button to finish.',
+            importPartialCancelled: 'Import cancelled after saving {committed}/{total} entries. Import the same file again with the same button to finish.',
             importSummaryKeep: 'Imported {imported}; skipped {skipped} existing entries.',
             importSummaryReplace: 'Imported {imported}; replaced {replaced} existing entries.',
             importFailed: 'Import failed: {error}',
@@ -631,6 +639,10 @@
             exportComplete: '已导出 {count} 个音频（{size}）。',
             exportFailed: '导出失败：{error}',
             importing: '正在读取并验证备份……',
+            importCheckingProgress: '正在校验备份……{done}/{total}',
+            importWritingProgress: '正在保存备份……{done}/{total}',
+            importPartialFailed: '导入已停止，已保存 {committed}/{total} 个词条：{error}。用同一个按钮重新导入同一文件即可完成剩余部分。',
+            importPartialCancelled: '导入已取消，已保存 {committed}/{total} 个词条。用同一个按钮重新导入同一文件即可完成剩余部分。',
             importSummaryKeep: '已导入 {imported} 个；跳过 {skipped} 个现有词条。',
             importSummaryReplace: '已导入 {imported} 个；替换 {replaced} 个现有词条。',
             importFailed: '导入失败：{error}',
@@ -661,6 +673,10 @@
             exportComplete: '已匯出 {count} 個音訊（{size}）。',
             exportFailed: '匯出失敗：{error}',
             importing: '正在讀取並驗證備份……',
+            importCheckingProgress: '正在驗證備份……{done}/{total}',
+            importWritingProgress: '正在儲存備份……{done}/{total}',
+            importPartialFailed: '匯入已停止，已儲存 {committed}/{total} 個詞條：{error}。用同一個按鈕重新匯入同一檔案即可完成其餘部分。',
+            importPartialCancelled: '匯入已取消，已儲存 {committed}/{total} 個詞條。用同一個按鈕重新匯入同一檔案即可完成其餘部分。',
             importSummaryKeep: '已匯入 {imported} 個；略過 {skipped} 個現有項目。',
             importSummaryReplace: '已匯入 {imported} 個；取代 {replaced} 個現有項目。',
             importFailed: '匯入失敗：{error}',
@@ -691,6 +707,10 @@
             exportComplete: 'Se exportaron {count} clips ({size}).',
             exportFailed: 'Error al exportar: {error}',
             importing: 'Leyendo y validando la copia de seguridad…',
+            importCheckingProgress: 'Verificando la copia de seguridad… {done}/{total}',
+            importWritingProgress: 'Guardando la copia de seguridad… {done}/{total}',
+            importPartialFailed: 'Importación detenida tras guardar {committed}/{total} entradas: {error}. Vuelve a importar el mismo archivo con el mismo botón para terminar.',
+            importPartialCancelled: 'Importación cancelada tras guardar {committed}/{total} entradas. Vuelve a importar el mismo archivo con el mismo botón para terminar.',
             importSummaryKeep: 'Importados: {imported}; omitidos por existir: {skipped}.',
             importSummaryReplace: 'Importados: {imported}; reemplazados: {replaced}.',
             importFailed: 'Error al importar: {error}',
@@ -721,6 +741,10 @@
             exportComplete: 'Mengekspor {count} klip ({size}).',
             exportFailed: 'Ekspor gagal: {error}',
             importing: 'Membaca dan memvalidasi cadangan…',
+            importCheckingProgress: 'Memeriksa cadangan… {done}/{total}',
+            importWritingProgress: 'Menyimpan cadangan… {done}/{total}',
+            importPartialFailed: 'Impor berhenti setelah menyimpan {committed}/{total} entri: {error}. Impor kembali berkas yang sama dengan tombol yang sama untuk menyelesaikannya.',
+            importPartialCancelled: 'Impor dibatalkan setelah menyimpan {committed}/{total} entri. Impor kembali berkas yang sama dengan tombol yang sama untuk menyelesaikannya.',
             importSummaryKeep: 'Diimpor {imported}; dilewati {skipped} entri yang sudah ada.',
             importSummaryReplace: 'Diimpor {imported}; diganti {replaced} entri yang sudah ada.',
             importFailed: 'Impor gagal: {error}',
@@ -751,6 +775,10 @@
             exportComplete: '{count} extraits exportés ({size}).',
             exportFailed: 'Échec de l’exportation : {error}',
             importing: 'Lecture et validation de la sauvegarde…',
+            importCheckingProgress: 'Vérification de la sauvegarde… {done}/{total}',
+            importWritingProgress: 'Enregistrement de la sauvegarde… {done}/{total}',
+            importPartialFailed: 'Importation arrêtée après l’enregistrement de {committed}/{total} entrées : {error}. Importez à nouveau le même fichier avec le même bouton pour terminer.',
+            importPartialCancelled: 'Importation annulée après l’enregistrement de {committed}/{total} entrées. Importez à nouveau le même fichier avec le même bouton pour terminer.',
             importSummaryKeep: '{imported} importés ; {skipped} entrées existantes ignorées.',
             importSummaryReplace: '{imported} importés ; {replaced} entrées existantes remplacées.',
             importFailed: 'Échec de l’importation : {error}',
@@ -781,6 +809,10 @@
             exportComplete: '{count} 件（{size}）をエクスポートしました。',
             exportFailed: 'エクスポートに失敗しました：{error}',
             importing: 'バックアップを読み込み、検証しています…',
+            importCheckingProgress: 'バックアップを検証しています… {done}/{total}',
+            importWritingProgress: 'バックアップを保存しています… {done}/{total}',
+            importPartialFailed: 'インポートが停止しました。{committed}/{total} 件を保存済みです：{error}。同じボタンで同じファイルをもう一度インポートすると、残りを完了できます。',
+            importPartialCancelled: 'インポートをキャンセルしました。{committed}/{total} 件を保存済みです。同じボタンで同じファイルをもう一度インポートすると、残りを完了できます。',
             importSummaryKeep: '{imported} 件をインポートし、既存の {skipped} 件をスキップしました。',
             importSummaryReplace: '{imported} 件をインポートし、既存の {replaced} 件を置換しました。',
             importFailed: 'インポートに失敗しました：{error}',
@@ -1943,67 +1975,259 @@
         return { blob: new Blob(parts, { type: 'application/json;charset=utf-8' }), count };
     }
 
-    async function parseBackupFile(file, job = null) {
-        if (!(file instanceof File)) throw translatedError('invalidBackup');
+    function isBackupWhitespace(byte) {
+        return byte === 32 || byte === 9 || byte === 10 || byte === 13;
+    }
 
-        let payload;
-        try {
-            const text = await file.text();
+    async function indexBackupFile(file, job, {
+        chunkBytes = CONFIG.BACKUP_READ_CHUNK_BYTES,
+        entryMaxBytes = CONFIG.BACKUP_ENTRY_MAX_BYTES,
+    } = {}) {
+        if (!(file instanceof File)) throw translatedError('invalidBackup');
+        const header = Object.create(null);
+        const ranges = [];
+        const stack = [];
+        let started = false;
+        let done = false;
+        let bom = 0;
+        let entriesSeen = false;
+        let key = '';
+        let keyStart = -1;
+        let valueStart = -1;
+        let entryStart = -1;
+        let token = null;
+
+        function checkCancelled() {
             if (job?.cancelled) throw new DOMException('Import cancelled.', 'AbortError');
-            payload = JSON.parse(text.replace(/^\uFEFF/, ''));
+        }
+        function invalid() {
+            throw new SyntaxError('Invalid backup JSON structure.');
+        }
+        function checkLength(end) {
+            if (entryStart >= 0 && end - entryStart > entryMaxBytes) {
+                throw translatedError('backupEntryTooLarge');
+            }
+            if ((keyStart >= 0 && end - keyStart > CONFIG.BACKUP_MEMBER_MAX_BYTES)
+                || (valueStart >= 0 && end - valueStart > CONFIG.BACKUP_MEMBER_MAX_BYTES)) invalid();
+        }
+        async function finishValue(end) {
+            const parent = stack[stack.length - 1];
+            if (!parent) { done = true; return; }
+            parent.phase = 'separator';
+            if (parent.kind === 'entries') {
+                ranges.push({ start: entryStart, end });
+                entryStart = -1;
+            } else if (parent.kind === 'root' && key !== 'entries') {
+                header[key] = JSON.parse(await file.slice(valueStart, end).text());
+                valueStart = -1;
+            }
+        }
+        async function finishString(end) {
+            const parent = stack[stack.length - 1];
+            if (token.key) {
+                if (parent.kind === 'root') {
+                    key = JSON.parse(await file.slice(keyStart, end).text());
+                    keyStart = -1;
+                }
+                parent.phase = 'colon';
+            } else {
+                await finishValue(end);
+            }
+            token = null;
+        }
+
+        // The file may exceed the engine's string limit; only keys, header values
+        // and individual entries are ever decoded, never the complete backup.
+        try {
+            if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1
+                || !Number.isSafeInteger(entryMaxBytes) || entryMaxBytes < 1) invalid();
+            let offset = 0;
+            while (true) {
+                checkCancelled();
+                const bytes = new Uint8Array(await file.slice(offset, offset + chunkBytes).arrayBuffer());
+                checkCancelled();
+                if (!bytes.length) break;
+                let index = 0;
+                while (index < bytes.length) {
+                    const position = offset + index;
+                    const byte = bytes[index];
+                    if (bom || (position === 0 && byte === 239)) {
+                        if (byte !== [239, 187, 191][bom]) invalid();
+                        bom += 1;
+                        if (bom === 3) bom = 0;
+                        index += 1;
+                        continue;
+                    }
+                    if (token?.string) {
+                        if (token.escaped) {
+                            token.escaped = false;
+                            index += 1;
+                        } else if (byte === 92) {
+                            token.escaped = true;
+                            index += 1;
+                        } else if (byte === 34) {
+                            checkLength(position + 1);
+                            await finishString(position + 1);
+                            index += 1;
+                        } else {
+                            const quote = bytes.indexOf(34, index);
+                            const end = quote < 0 ? bytes.length : quote;
+                            const slash = bytes.subarray(index, end).indexOf(92);
+                            index = slash < 0 ? end : index + slash;
+                        }
+                        checkLength(offset + index);
+                        continue;
+                    }
+                    if (token) {
+                        if (!isBackupWhitespace(byte) && ![44, 93, 125].includes(byte)) {
+                            if ([34, 58, 91, 123].includes(byte)) invalid();
+                            index += 1;
+                            checkLength(offset + index);
+                            continue;
+                        }
+                        token = null;
+                        await finishValue(position);
+                        continue;
+                    }
+                    checkLength(position);
+                    if (isBackupWhitespace(byte)) { index += 1; continue; }
+                    if (done) invalid();
+                    if (!started) {
+                        if (byte !== 123) invalid();
+                        started = true;
+                        stack.push({ kind: 'root', close: 125, phase: 'firstKey' });
+                        index += 1;
+                        continue;
+                    }
+                    const parent = stack[stack.length - 1];
+                    if (byte === parent.close && ['firstKey', 'firstValue', 'separator'].includes(parent.phase)) {
+                        checkLength(position + 1);
+                        stack.pop();
+                        await finishValue(position + 1);
+                        index += 1;
+                        continue;
+                    }
+                    if (parent.phase === 'separator') {
+                        if (byte !== 44) invalid();
+                        parent.phase = parent.close === 125 ? 'key' : 'value';
+                    } else if (parent.phase === 'colon') {
+                        if (byte !== 58) invalid();
+                        parent.phase = 'value';
+                    } else if (parent.phase === 'key' || parent.phase === 'firstKey') {
+                        if (byte !== 34) invalid();
+                        if (parent.kind === 'root') keyStart = position;
+                        token = { string: true, key: true, escaped: false };
+                    } else {
+                        if (parent.kind === 'root') {
+                            if (key === 'entries') {
+                                if (entriesSeen || byte !== 91) invalid();
+                                entriesSeen = true;
+                            } else {
+                                valueStart = position;
+                            }
+                        } else if (parent.kind === 'entries') {
+                            entryStart = position;
+                        }
+                        if (byte === 123 || byte === 91) {
+                            stack.push({
+                                kind: parent.kind === 'root' && key === 'entries' ? 'entries' : 'value',
+                                close: byte === 123 ? 125 : 93,
+                                phase: byte === 123 ? 'firstKey' : 'firstValue',
+                            });
+                        } else if (byte === 34) {
+                            token = { string: true, key: false, escaped: false };
+                        } else if (byte === 45 || (byte >= 48 && byte <= 57) || [116, 102, 110].includes(byte)) {
+                            token = { string: false };
+                        } else {
+                            invalid();
+                        }
+                    }
+                    index += 1;
+                    checkLength(offset + index);
+                }
+                offset += bytes.length;
+                // Use the actual slice length, including when a caller overrides File.size.
+                if (bytes.length < chunkBytes) break;
+            }
+            if (bom || token || stack.length || !done) invalid();
         } catch (error) {
-            if (error?.name === 'AbortError') throw error;
+            if (error?.name === 'AbortError' || error?.translation?.key === 'backupEntryTooLarge') throw error;
             throw translatedError('invalidBackup', {}, { cause: error });
         }
-
-        if (!payload || payload.format !== CONFIG.BACKUP_FORMAT || !Array.isArray(payload.entries)) {
-            throw translatedError('invalidBackup');
+        if (header.format !== CONFIG.BACKUP_FORMAT || !entriesSeen) throw translatedError('invalidBackup');
+        if (Number(header.formatVersion) !== CONFIG.BACKUP_FORMAT_VERSION) {
+            throw translatedError('unsupportedBackupVersion', { version: header.formatVersion ?? '?' });
         }
-        if (Number(payload.formatVersion) !== CONFIG.BACKUP_FORMAT_VERSION) {
-            throw translatedError('unsupportedBackupVersion', { version: payload.formatVersion ?? '?' });
+        return { header, ranges };
+    }
+
+    async function parseBackupEntry(item) {
+        const sentenceKey = normalizeSentence(item?.sentenceKey || item?.sentence || '');
+        if (!sentenceKey || typeof item?.dataBase64 !== 'string') throw translatedError('invalidBackup');
+        const mimeType = String(item.mimeType || 'audio/wav');
+        const blob = base64ToBlob(item.dataBase64, mimeType);
+        if (blob.size > CONFIG.MAX_AUDIO_BYTES) throw translatedError('backupEntryTooLarge');
+        const fileName = String(item.fileName || 'audio');
+        const fileLike = new File([blob], fileName, { type: mimeType });
+        if (!looksLikeAudioFile(fileLike)) throw translatedError('invalidBackup');
+
+        const actualHash = await sha256Hex(blob);
+        const expectedHash = String(item.sha256 || '').toLowerCase();
+        if (expectedHash && actualHash && expectedHash !== actualHash) {
+            throw translatedError('backupChecksumMismatch', { sentence: item.sentence || sentenceKey });
         }
 
+        const updatedAt = String(item.updatedAt || new Date().toISOString());
+        return {
+            sentenceKey,
+            sentence: String(item.sentence || sentenceKey),
+            fileName,
+            file_name: fileName,
+            file: fileName,
+            source_path: fileName,
+            mimeType,
+            mime_type: mimeType,
+            size: blob.size,
+            sha256: actualHash || expectedHash,
+            hash: actualHash || expectedHash,
+            updatedAt,
+            updated_at: updatedAt,
+            blob,
+            ...(item.compression?.version === 1 && actualHash
+                && item.compression.sha256 === actualHash
+                ? { compression: { version: 1, codec: 'opus', bitRate: 64000, sha256: actualHash } }
+                : {}),
+        };
+    }
+
+    async function readBackupEntry(file, range, expectedSha256 = '') {
+        let item;
+        try {
+            item = JSON.parse(await file.slice(range.start, range.end).text());
+        } catch (error) {
+            throw translatedError('invalidBackup', {}, { cause: error });
+        }
+        const record = await parseBackupEntry(item);
+        if (expectedSha256 && record.sha256 !== expectedSha256) {
+            throw translatedError('backupChecksumMismatch', { sentence: record.sentence });
+        }
+        return record;
+    }
+
+    async function scanBackupFile(file, job, options) {
+        const { ranges } = await indexBackupFile(file, job, options);
         const unique = new Map();
-        for (const item of payload.entries) {
+        let done = 0;
+        options?.onProgress?.(done, ranges.length);
+        for (const range of ranges) {
             if (job?.cancelled) throw new DOMException('Import cancelled.', 'AbortError');
-            const sentenceKey = normalizeSentence(item?.sentenceKey || item?.sentence || '');
-            if (!sentenceKey || typeof item?.dataBase64 !== 'string') throw translatedError('invalidBackup');
-            const mimeType = String(item.mimeType || 'audio/wav');
-            const blob = base64ToBlob(item.dataBase64, mimeType);
-            if (blob.size > CONFIG.MAX_AUDIO_BYTES) throw translatedError('backupEntryTooLarge');
-            const fileName = String(item.fileName || 'audio');
-            const fileLike = new File([blob], fileName, { type: mimeType });
-            if (!looksLikeAudioFile(fileLike)) throw translatedError('invalidBackup');
-
-            const actualHash = await sha256Hex(blob);
-            const expectedHash = String(item.sha256 || '').toLowerCase();
-            if (expectedHash && actualHash && expectedHash !== actualHash) {
-                throw translatedError('backupChecksumMismatch', { sentence: item.sentence || sentenceKey });
-            }
-
-            const updatedAt = String(item.updatedAt || new Date().toISOString());
-            unique.set(sentenceKey, {
-                sentenceKey,
-                sentence: String(item.sentence || sentenceKey),
-                fileName,
-                file_name: fileName,
-                file: fileName,
-                source_path: fileName,
-                mimeType,
-                mime_type: mimeType,
-                size: blob.size,
-                sha256: actualHash || expectedHash,
-                hash: actualHash || expectedHash,
-                updatedAt,
-                updated_at: updatedAt,
-                blob,
-                ...(item.compression?.version === 1 && actualHash
-                    && item.compression.sha256 === actualHash
-                    ? { compression: { version: 1, codec: 'opus', bitRate: 64000, sha256: actualHash } }
-                    : {}),
+            const record = await readBackupEntry(file, range);
+            unique.set(record.sentenceKey, {
+                range, sentenceKey: record.sentenceKey, sha256: record.sha256, size: record.size,
             });
+            options?.onProgress?.(++done, ranges.length);
         }
-        return [...unique.values()];
+        return { descriptors: [...unique.values()], total: ranges.length };
     }
 
     function invalidateLookupAfterDatabaseChange() {
@@ -2052,6 +2276,7 @@
         const file = validateSelectedFile(selectedFile);
         const automatic = startAutomaticCompression();
         try {
+            if (automatic) automatic.job.total = 1;
             const updatedAt = new Date().toISOString();
             const blob = file.slice(0, file.size, file.type || 'audio/wav');
             const sha256 = await sha256Hex(blob);
@@ -5539,12 +5764,14 @@
         if (!session) return records;
         const { job, context } = session;
         await session.ready;
-        job.total = records.length;
         for (let index = 0; index < records.length; index += 1) {
             if (job.cancelled) throw new DOMException('Audio compression cancelled.', 'AbortError');
             const before = records[index];
-            if (state.refs) setPanelMessage('autoCompressionProgress', compressionSummary(job));
-            renderPanel();
+            if (session.updateProgress) session.updateProgress('autoCompressionProgress', compressionSummary(job));
+            else {
+                if (state.refs) setPanelMessage('autoCompressionProgress', compressionSummary(job));
+                renderPanel();
+            }
             try {
                 if (session.error) throw new Error(renderMessage(session.error));
                 const after = await compressAudioEntry(before, context, job);
@@ -5717,53 +5944,104 @@
         if (state.adminBusy) return;
         const replace = mode === 'replace';
         const automatic = startAutomaticCompression();
+        let committedCount = 0;
+        let total = 0;
+        let complete = false;
+        let lastProgress = -Infinity;
+        let progressTimer = null;
+        let pendingProgress = null;
+        function flushProgress() {
+            progressTimer = null;
+            lastProgress = performance.now();
+            setPanelMessage(pendingProgress.key, pendingProgress.vars);
+            renderPanel();
+        }
+        function updateProgress(key, vars) {
+            pendingProgress = { key, vars };
+            const delay = 250 - (performance.now() - lastProgress);
+            if (delay <= 0) {
+                clearTimeout(progressTimer);
+                flushProgress();
+            } else if (progressTimer === null) {
+                progressTimer = setTimeout(flushProgress, delay);
+            }
+        }
+        function checkCancelled() {
+            if (automatic?.job.cancelled) throw new DOMException('Import cancelled.', 'AbortError');
+        }
+        if (automatic) automatic.updateProgress = updateProgress;
         setAdminBusy(true, 'importing');
         try {
-            const importedRecords = await parseBackupFile(file, automatic?.job);
+            const { descriptors } = await scanBackupFile(file, automatic?.job, {
+                onProgress: (done, count) => updateProgress('importCheckingProgress', { done, total: count }),
+            });
             const inventory = await dbAudioInventory();
             const existingKeys = new Set(inventory.presentKeys);
-            const writes = [];
+            const writes = descriptors.filter((descriptor) => replace || !existingKeys.has(descriptor.sentenceKey));
             let imported = 0;
-            let skipped = 0;
+            let skipped = descriptors.length - writes.length;
             let replaced = 0;
+            total = writes.length;
+            if (automatic) automatic.job.total = total;
 
-            for (const record of importedRecords) {
-                if (existingKeys.has(record.sentenceKey)) {
-                    if (!replace) {
-                        skipped += 1;
-                        continue;
+            for (let offset = 0; offset < writes.length;) {
+                checkCancelled();
+                if (!automatic) updateProgress('importWritingProgress', { done: offset, total });
+                const batch = [];
+                let bytes = 0;
+                // A clip larger than the target gets its own batch. No decoded
+                // records from a previous commit survive into the next read.
+                while (offset < writes.length) {
+                    const descriptor = writes[offset];
+                    if (batch.length && bytes + descriptor.size > CONFIG.IMPORT_BATCH_BYTES) break;
+                    checkCancelled();
+                    batch.push(await readBackupEntry(file, descriptor.range, descriptor.sha256));
+                    bytes += descriptor.size;
+                    offset += 1;
+                }
+                await automaticallyCompressRecords(batch, automatic);
+                checkCancelled();
+                if (automatic) { automatic.job.committing = true; renderPanel(); }
+                let committed;
+                try {
+                    committed = await dbPutMany(batch, { keepExisting: !replace });
+                } finally {
+                    if (automatic) { automatic.job.committing = false; renderPanel(); }
+                }
+                imported += committed.imported;
+                replaced += committed.replaced;
+                skipped += committed.skipped;
+                committedCount += committed.imported + committed.replaced;
+                if (automatic) {
+                    for (const key of committed.skippedKeys) {
+                        if (!automatic.job.savedByKey.has(key)) continue;
+                        automatic.job.changed -= 1;
+                        automatic.job.skipped += 1;
+                        automatic.job.savedBytes -= automatic.job.savedByKey.get(key);
+                        automatic.job.savedByKey.delete(key);
                     }
-                    replaced += 1;
-                } else {
-                    imported += 1;
                 }
-                writes.push(record);
-                existingKeys.add(record.sentenceKey);
+                if (!automatic) updateProgress('importWritingProgress', { done: offset, total });
             }
-
-            await automaticallyCompressRecords(writes, automatic);
-            if (automatic) { automatic.job.committing = true; renderPanel(); }
-            const committed = await dbPutMany(writes, { keepExisting: !replace });
-            imported = committed.imported;
-            replaced = committed.replaced;
-            skipped += committed.skipped;
-            if (automatic) {
-                for (const key of committed.skippedKeys) {
-                    if (!automatic.job.savedByKey.has(key)) continue;
-                    automatic.job.changed -= 1;
-                    automatic.job.skipped += 1;
-                    automatic.job.savedBytes -= automatic.job.savedByKey.get(key);
-                }
-            }
+            checkCancelled();
+            complete = true;
             try { void navigator.storage?.persist?.(); } catch { /* best effort */ }
-            invalidateLookupAfterDatabaseChange();
             setPanelMessage(replace ? 'importSummaryReplace' : 'importSummaryKeep',
                 { imported, replaced, skipped }, automaticCompressionMessage(automatic));
-            await refreshAdminStats();
         } catch (error) {
-            setPanelMessage(error?.name === 'AbortError' ? 'autoCompressionCancelled' : 'importFailed',
-                { error: errorMessage(error) });
+            if (committedCount) {
+                setPanelMessage(error?.name === 'AbortError' ? 'importPartialCancelled' : 'importPartialFailed',
+                    { committed: committedCount, total, error: errorMessage(error) });
+            } else {
+                setPanelMessage(error?.name === 'AbortError' ? 'autoCompressionCancelled' : 'importFailed',
+                    { error: errorMessage(error) });
+            }
         } finally {
+            clearTimeout(progressTimer);
+            if (complete || committedCount) {
+                invalidateLookupAfterDatabaseChange();
+                await refreshAdminStats();
+            }
             await finishAutomaticCompression(automatic);
             state.adminBusy = false;
             setUiBusy(false);

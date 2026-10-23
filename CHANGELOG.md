@@ -1,5 +1,17 @@
 # BunPro Local Audio Override — Greasy Fork Changelog
 
+## 0.6.1.6 — 2026-10-24
+
+- 大型备份可逐条读取并导入，不再受整个文件拼接成单个字符串的限制。
+- 导入时显示校验和保存进度，并分批保存音频。中途失败或取消时，会明确显示已保存的词条数；用同一个按钮重新导入同一文件即可完成剩余部分。
+- `.bpao` 备份格式保持不变；50 MiB 单音频上限、磁盘空间和浏览器存储配额仍然适用。
+
+### English release summary
+
+- Large backups are read and imported entry by entry, without one file-sized string.
+- Import shows checking and saving progress and saves clips in batches. If it stops or is cancelled, the message reports how many entries were saved. Import the same file again with the same button to finish.
+- The `.bpao` format is unchanged. The 50 MiB per-clip limit, disk space and browser storage quota still apply.
+
 ## 0.6.1.5 — 2026-10-05
 
 - 大型音频库可逐条构建并导出备份，不再受整个库拼接成单个字符串的限制。`.bpao` 格式不变，旧版仍可读取，但仍受旧版导入限制影响。
