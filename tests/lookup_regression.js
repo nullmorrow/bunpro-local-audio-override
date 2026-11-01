@@ -52,7 +52,7 @@ window.runLookupRegression = async function (negative) {
         const before = playCount;
         const playback = new Promise(resolve => { resolvePlayback = resolve; });
         const event = immediateP(sentence);
-        check(event.defaultPrevented && state.pRouteOwner === 'local', label + ': immediate P belongs to local route');
+        check(event.defaultPrevented && state.pRoute.owner === 'local', label + ': immediate P belongs to local route');
         await playback;
         resolvePlayback = null;
         check(playCount === before + 1 && playedSrc === state.objectUrl && playedSrc.startsWith('blob:'),
@@ -63,7 +63,7 @@ window.runLookupRegression = async function (negative) {
     async function nativeP(sentence, label) {
         const before = playCount;
         const event = immediateP(sentence);
-        check(!event.defaultPrevented && state.pRouteOwner === 'native' && nativeEvents.length === 1
+        check(!event.defaultPrevented && state.pRoute.owner === 'native' && nativeEvents.length === 1
             && nativeEvents[0] === event, label + ': unchanged P reaches the native listener exactly once');
         if (state.lookupPromise) await state.lookupPromise;
         await Promise.resolve();

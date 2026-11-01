@@ -54,6 +54,7 @@ function placeholders(node, label) {
 
 findTables(ast);
 if (!tables.length) issues.push('No I18N tables found');
+if (tables.length > 1) issues.push(`Expected one I18N table, found ${tables.length}`);
 for (const [name, object] of tables) {
     const translations = objectEntries(object, name);
     for (const language of languages) {

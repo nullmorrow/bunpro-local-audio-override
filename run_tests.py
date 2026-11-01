@@ -17,6 +17,7 @@ TESTS = [
     ('compression', ('test_browser_compression.py',), True, False),
     ('storage', ('test_storage.py',), True, False),
     ('lookup', ('test_lookup.py',), True, False),
+    ('hotkeys', ('test_hotkeys.py',), True, False),
     ('panel', ('test_panel.py',), True, False),
 ]
 USER_SCRIPT = 'bunpro_local_audio_override.user.js'

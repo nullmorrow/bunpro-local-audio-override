@@ -4,17 +4,17 @@ Store a custom audio clip for a BunPro sentence and practise speaking with **P**
 to play and record, then **O** to review your own voice. The published 0.6.x
 edition runs entirely in your browser: no Python server and no audio uploads.
 
-Current release: **0.6.1.6**, November 1, 2026.
+Current release: **0.6.1.7**, November 2, 2026.
 
 [Install from Greasy Fork](https://greasyfork.org/en/scripts/583595-bunpro-local-audio-override)
-· [Release notes](docs/release-notes-0.6.1.6.md)
+· [Release notes](docs/release-notes-0.6.1.7.md)
 · [简体中文详细说明](docs/guide.zh-CN.md)
 
 This is an unofficial community project, not affiliated with BunPro.
 
 Source code and releases: [nullmorrow/bunpro-local-audio-override](https://github.com/nullmorrow/bunpro-local-audio-override).
 
-The [November 1 validation report](docs/validation-2026-11-01.md) records the latest
+The [November 2 validation report](docs/validation-2026-11-02.md) records the latest
 Firefox and Chrome regression results for this source.
 
 ## Install or update
@@ -112,8 +112,10 @@ The `.bpao` format is unchanged. Base64 enlarges backups; the **50 MiB per-clip
 limit**, available memory, disk space and browser storage quota remain practical limits.
 
 **Compress Audio** encodes saved overrides locally as mono Opus at a target
-64 kbps: Ogg/Opus in Firefox and WebM/Opus in Chrome. It uses neither a microphone
-nor an upload. Processing is sequential and takes roughly the clips' total duration.
+64 kbps. With WebCodecs Opus support, compression is much faster than real time
+and produces Ogg/Opus in both Firefox and Chrome. If unsupported or encoding fails,
+the previous real-time method is used: Ogg/Opus in Firefox and WebM/Opus in Chrome.
+It uses neither a microphone nor an upload. Clips are processed sequentially.
 Only decodable results at least 10% smaller replace the original. Already marked
 or sufficiently small lossy clips are skipped; failures keep the original and
 concurrent edits in another tab are not overwritten.
@@ -146,7 +148,7 @@ future BunPro page changes may require another update.
 
 ## Development and validation
 
-See [the validation report](docs/validation-2026-11-01.md) for the tested versions,
+See [the validation report](docs/validation-2026-11-02.md) for the tested versions,
 source hashes, regression counts and limits. Tests use separate headless profiles,
 generated audio and controlled device failures, never a personal BunPro library.
 They do not replace physical USB-disconnect tests, listening checks or a live

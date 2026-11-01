@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BunPro Local Audio Override
 // @namespace    bunpro.local-audio-override.serverless
-// @version      0.6.1.6
+// @version      0.6.1.7
 // @description  Store per-sentence audio overrides in your browser and practise speaking with P-to-record / O-to-review. No local server or upload required.
 // @description:zh-CN  把逐句自定义音频保存在浏览器中，在 BunPro 复习时播放，并通过 P 键录音、O 键回听。无需本地服务，也不会上传音频。
 // @description:zh-TW  把逐句自訂音訊保存在瀏覽器中，在 BunPro 複習時播放，並透過 P 鍵錄音、O 鍵回聽。無需本機服務，也不會上傳音訊。
@@ -44,7 +44,7 @@
         BACKUP_ENTRY_MAX_BYTES: Math.ceil(50 * 1024 * 1024 / 3) * 4 + 1024 * 1024,
         BACKUP_MEMBER_MAX_BYTES: 1024 * 1024,
         IMPORT_BATCH_BYTES: 32 * 1024 * 1024,
-        SCRIPT_VERSION: '0.6.1.6',
+        SCRIPT_VERSION: '0.6.1.7',
         CLEAN_CONFIRM_TIMEOUT_MS: 10000,
         COMPRESSION_START_TIMEOUT_MS: 10000,
         DEFAULT_FALLBACK_RATE: 1.0,
@@ -54,17 +54,16 @@
         SYNC_INTERVAL_MS: 750,
         PANEL_GAP_PX: 10,
         PANEL_EDGE_PX: 8,
-        // 共享麦克风流在空闲这么久之后才真正释放设备。每次按 P 都重开
-        // getUserMedia 会让 Chrome 反复切换音频渲染路径，正在播放的音频
-        // 会在几百毫秒内卡死，所以 3.6 起改成长期持有、按需复用。
+        // Reopening getUserMedia on every P can switch Chrome's audio rendering
+        // path and stall reference playback. Reuse the stream until it has been idle.
         MIC_IDLE_RELEASE_MS: 180000,
         MIC_REQUEST_TIMEOUT_MS: 10000,
         MIC_FAILURE_RETRY_MS: 30000,
         MIC_MUTE_GRACE_MS: 1500,
-        // 单次录音最多保留 120 秒；到时自动停止并保留录音供 O 键回听。
+        // Bound each take to 120 seconds while retaining it for O replay.
         RECORDING_MAX_DURATION_MS: 120000,
-        // BunPro 在切题/预取时会短暂把 data-meta-* 置成不合格状态。
-        // 正在播放时给一个宽限期，避免把播放误判成“换题”而中断。
+        // BunPro briefly invalidates data-meta-* during question changes and prefetch.
+        // Allow a grace period so transient metadata does not interrupt playback.
         PAGE_STATE_GRACE_MS: 1500,
         DEBUG: false,
     });
@@ -96,6 +95,7 @@
 
     const I18N = Object.freeze({
         en: {
+            // General
             panelTitle: 'Local audio override',
             statusWaiting: 'Waiting for answer',
             statusNone: 'No local override',
@@ -164,8 +164,81 @@
             recordingMicProcessingClean: 'Mic: clean',
             recordingMicProcessingRawTitle: 'Microphone processing is off (no echo cancellation). This is the setting that keeps playback from stalling. Click to switch.',
             recordingMicProcessingCleanTitle: 'Microphone processing is on (echo cancellation, noise suppression). Keeps the reference audio out of your recording, but Chrome may stall playback on some devices. Click to switch.',
+
+            // Recording gain
+            micGainLabel: 'Mic gain',
+            micGainTitle: 'Boost your voice in the next P recording. 1× = original; try 2× for a quiet voice. Saved automatically. Does not change reference audio or an existing take; higher gain also boosts background noise.',
+            micGainUnavailable: 'Microphone gain could not start. Reference playback continues. Switch Rec off/on to retry; choose 1× to record without gain.',
+
+            // Microphone recovery
+            micUnavailable: 'Microphone unavailable. Reference playback continues. Reconnect the device or switch Rec off/on to retry.',
+            micRetryWaiting: 'Recording paused after a microphone error. Next P can retry in {seconds}s; reconnect the device or switch Rec off/on to retry now.',
+            micRequestTimeout: 'Microphone request timed out; reference playback is unaffected.',
+
+            // Admin
+            admin: 'Admin',
+            adminTitle: 'Audio database admin',
+            adminHelp: 'Import keeps existing sentences. Import & Replace overwrites them.',
+            adminStatsLoading: 'Reading database…',
+            adminStats: '{count} clips · {size}',
+            exportToFile: 'Export to File',
+            importKeep: 'Import',
+            importReplace: 'Import & Replace',
+            cleanDatabase: 'Clean Database',
+            confirmClean: 'Confirm Delete All',
+            back: 'Back',
+            noOverridesToExport: 'There are no saved audio overrides to export.',
+            exporting: 'Preparing backup…',
+            exportComplete: 'Exported {count} clips ({size}).',
+            exportFailed: 'Export failed: {error}',
+            importing: 'Reading and validating backup…',
+            importCheckingProgress: 'Checking backup… {done}/{total}',
+            importWritingProgress: 'Saving backup… {done}/{total}',
+            importPartialFailed: 'Import stopped after saving {committed}/{total} entries: {error}. Import the same file again with the same button to finish.',
+            importPartialCancelled: 'Import cancelled after saving {committed}/{total} entries. Import the same file again with the same button to finish.',
+            importSummaryKeep: 'Imported {imported}; skipped {skipped} existing entries.',
+            importSummaryReplace: 'Imported {imported}; replaced {replaced} existing entries.',
+            importFailed: 'Import failed: {error}',
+            invalidBackup: 'This is not a valid BunPro Local Audio Override backup.',
+            unsupportedBackupVersion: 'Unsupported backup format version: {version}',
+            backupEntryTooLarge: 'An audio clip in the backup is larger than 50 MB.',
+            backupChecksumMismatch: 'Backup checksum mismatch for: {sentence}',
+            chooseBackupFile: 'Choose a BunPro Local Audio Override backup file',
+            cleanWarning: 'Click the confirmation button again to delete every saved clip.',
+            cleaning: 'Deleting all saved audio overrides…',
+            cleaned: 'Deleted {count} saved audio overrides.',
+            databaseError: 'Database operation failed: {error}',
+
+            // Compression
+            compressAudio: 'Compress Audio',
+            cancelCompression: 'Cancel Compression',
+            autoCompressLabel: 'Auto-compress new audio',
+            autoCompressTitle: 'Use lossy mono Opus compression for new audio saved with Save or imported from .bpao backups. Existing library audio is not changed. Your choice is remembered.',
+            autoCompressionProgress: 'Auto-compressing new audio {done}/{total}…',
+            autoCompressionSummary: 'Auto-compression: {changed} converted, {skipped} skipped, {failed} failed · saved {saved}.',
+            autoCompressionCancelled: 'Cancelled. No audio was saved or imported.',
+            autoCompressionUnavailable: 'Auto-compression unavailable: {error}. Original audio will be saved or imported normally.',
+            compressionConfirm: 'Compress all saved audio to mono Opus at 64 kbps? This is lossy and cannot restore the original quality. Export a backup first if you want to keep originals. Only smaller, verified clips replace originals. Encoding is silent and takes roughly the total audio duration. Keep this tab open; you can cancel at any time.',
+            compressionStarting: 'Preparing compression…',
+            compressionProgress: 'Compressing {done}/{total} · saved {saved} · converted {changed}, skipped {skipped}, failed {failed}',
+            compressionComplete: 'Compression complete: {changed} converted, {skipped} skipped, {failed} failed · saved {saved}.',
+            compressionCancelled: 'Compression cancelled: {changed} converted, {skipped} skipped, {failed} failed · saved {saved}. Completed changes were kept.',
+            compressionCancelling: 'Cancelling compression…',
+            compressionFailed: 'Compression stopped: {error}. Completed changes were kept; unprocessed clips are unchanged.',
+            compressionAbort: 'Audio compression cancelled.',
+            compressionRecorderUnavailable: 'This browser cannot encode Opus audio with MediaRecorder.',
+            compressionEncoderUnavailable: 'This browser has no supported Ogg/WebM Opus encoder.',
+            compressionContextUnavailable: 'The audio compression context is unavailable.',
+            compressionNoSamples: 'The source audio has no decodable samples.',
+            compressionSuspended: 'Audio processing is suspended. Keep this tab active and try again.',
+            compressionEncoderFailed: 'The Opus encoder failed.',
+            compressionStoppedEarly: 'Audio encoding stopped before the clip finished.',
+            compressionTimedOut: 'Audio encoding timed out. Keep this tab active and try again.',
+            compressionEmptyClip: 'The Opus encoder produced an empty clip.',
+            compressionValidationFailed: 'Encoded audio failed duration/channel validation; the original was kept.',
         },
         'zh-CN': {
+            // General
             panelTitle: '本地音频覆盖',
             statusWaiting: '等待正确答案',
             statusNone: '未设置本地覆盖',
@@ -234,8 +307,81 @@
             recordingMicProcessingClean: '麦克风：降噪',
             recordingMicProcessingRawTitle: '已关闭麦克风处理（不做回声消除）。这正是避免播放卡死的设置。点击切换。',
             recordingMicProcessingCleanTitle: '已开启麦克风处理（回声消除、降噪）。录音里不会混入参考音频，但在部分设备上 Chrome 会让播放卡死。点击切换。',
+
+            // Recording gain
+            micGainLabel: '录音增益',
+            micGainTitle: '从下一次 P 录音起放大人声。1× 为原音量，轻声说话可先试 2×。自动记住选择，不影响参考音频或已录好的内容；增益也会放大背景噪声。',
+            micGainUnavailable: '录音增益无法启动，不影响参考音频。关闭再开启 Rec 后按 P 重试；可选 1× 使用原音量录音。',
+
+            // Microphone recovery
+            micUnavailable: '麦克风暂不可用，参考音频继续播放。重新连接设备或关闭再开启 Rec 后可重试。',
+            micRetryWaiting: '麦克风异常，已暂缓录音。{seconds} 秒后按 P 可重试；重新连接设备或关闭再开启 Rec 可立即重试。',
+            micRequestTimeout: '请求麦克风超时，不影响参考音频播放。',
+
+            // Admin
+            admin: '管理',
+            adminTitle: '音频数据库管理',
+            adminHelp: '「导入」保留现有句子；「导入并替换」会覆盖现有句子。',
+            adminStatsLoading: '正在读取数据库……',
+            adminStats: '{count} 个音频 · {size}',
+            exportToFile: '导出到文件',
+            importKeep: '导入',
+            importReplace: '导入并替换',
+            cleanDatabase: '清空数据库',
+            confirmClean: '确认全部删除',
+            back: '返回',
+            noOverridesToExport: '没有可导出的自定义音频。',
+            exporting: '正在准备备份……',
+            exportComplete: '已导出 {count} 个音频（{size}）。',
+            exportFailed: '导出失败：{error}',
+            importing: '正在读取并验证备份……',
+            importCheckingProgress: '正在校验备份……{done}/{total}',
+            importWritingProgress: '正在保存备份……{done}/{total}',
+            importPartialFailed: '导入已停止，已保存 {committed}/{total} 个词条：{error}。用同一个按钮重新导入同一文件即可完成剩余部分。',
+            importPartialCancelled: '导入已取消，已保存 {committed}/{total} 个词条。用同一个按钮重新导入同一文件即可完成剩余部分。',
+            importSummaryKeep: '已导入 {imported} 个；跳过 {skipped} 个现有词条。',
+            importSummaryReplace: '已导入 {imported} 个；替换 {replaced} 个现有词条。',
+            importFailed: '导入失败：{error}',
+            invalidBackup: '该文件不是有效的 BunPro Local Audio Override 备份。',
+            unsupportedBackupVersion: '不支持的备份格式版本：{version}',
+            backupEntryTooLarge: '备份中有音频超过 50 MB。',
+            backupChecksumMismatch: '以下句子的备份校验失败：{sentence}',
+            chooseBackupFile: '选择 BunPro Local Audio Override 备份文件',
+            cleanWarning: '请再次点击确认按钮，以删除所有已保存音频。',
+            cleaning: '正在删除所有自定义音频……',
+            cleaned: '已删除 {count} 个自定义音频。',
+            databaseError: '数据库操作失败：{error}',
+
+            // Compression
+            compressAudio: '压缩音频',
+            cancelCompression: '取消压缩',
+            autoCompressLabel: '自动压缩新音频',
+            autoCompressTitle: '对点击 Save 保存或从 .bpao 备份导入的新音频进行单声道 Opus 有损压缩；不会改动现有音频库。此设置会被记住。',
+            autoCompressionProgress: '正在自动压缩新音频 {done}/{total}……',
+            autoCompressionSummary: '自动压缩：已压缩 {changed}，跳过 {skipped}，失败 {failed} · 节省 {saved}。',
+            autoCompressionCancelled: '已取消，未保存或导入任何音频。',
+            autoCompressionUnavailable: '自动压缩不可用：{error}。原音频将照常保存或导入。',
+            compressionConfirm: '将全部已保存音频压缩为 64 kbps 单声道 Opus？这是有损压缩，不能恢复原始音质；如需保留原版，请先导出备份。仅用更小且验证通过的音频替换原音频。过程静音，耗时约为音频总时长。请保持标签页打开，可随时取消。',
+            compressionStarting: '正在准备压缩……',
+            compressionProgress: '正在压缩 {done}/{total} · 节省 {saved} · 已压缩 {changed}，跳过 {skipped}，失败 {failed}',
+            compressionComplete: '压缩完成：已压缩 {changed}，跳过 {skipped}，失败 {failed} · 节省 {saved}。',
+            compressionCancelled: '已取消：已压缩 {changed}，跳过 {skipped}，失败 {failed} · 节省 {saved}。已完成的压缩已保留。',
+            compressionCancelling: '正在取消压缩……',
+            compressionFailed: '压缩已停止：{error}。已完成的压缩已保留；未处理的音频不变。',
+            compressionAbort: '音频压缩已取消。',
+            compressionRecorderUnavailable: '当前浏览器无法使用 MediaRecorder 编码 Opus 音频。',
+            compressionEncoderUnavailable: '当前浏览器没有可用的 Ogg/WebM Opus 编码器。',
+            compressionContextUnavailable: '音频压缩环境不可用。',
+            compressionNoSamples: '原音频没有可解码的采样。',
+            compressionSuspended: '音频处理已暂停。请保持此标签页处于活动状态后重试。',
+            compressionEncoderFailed: 'Opus 编码器出错。',
+            compressionStoppedEarly: '音频编码在片段结束前停止。',
+            compressionTimedOut: '音频编码超时。请保持此标签页处于活动状态后重试。',
+            compressionEmptyClip: 'Opus 编码器生成了空音频。',
+            compressionValidationFailed: '编码后音频的时长或声道验证失败；已保留原音频。',
         },
         'zh-TW': {
+            // General
             panelTitle: '本機音訊覆蓋',
             statusWaiting: '等待正確答案',
             statusNone: '尚未設定本機覆蓋',
@@ -304,8 +450,81 @@
             recordingMicProcessingClean: '麥克風：降噪',
             recordingMicProcessingRawTitle: '已關閉麥克風處理（不進行回音消除）。此設定可避免播放卡住。點擊切換。',
             recordingMicProcessingCleanTitle: '已開啟麥克風處理（回音消除、降噪）。可避免參考音訊混入錄音，但在部分裝置上 Chrome 可能會讓播放卡住。點擊切換。',
+
+            // Recording gain
+            micGainLabel: '錄音增益',
+            micGainTitle: '從下一次 P 錄音起放大人聲。1× 為原音量，輕聲說話可先試 2×。自動記住選擇，不影響參考音訊或已錄好的內容；增益也會放大背景噪音。',
+            micGainUnavailable: '錄音增益無法啟動，不影響參考音訊。關閉再開啟 Rec 後按 P 重試；可選 1× 使用原音量錄音。',
+
+            // Microphone recovery
+            micUnavailable: '麥克風暫不可用，參考音訊繼續播放。重新連接裝置或關閉再開啟 Rec 後可重試。',
+            micRetryWaiting: '麥克風異常，已暫緩錄音。{seconds} 秒後按 P 可重試；重新連接裝置或關閉再開啟 Rec 可立即重試。',
+            micRequestTimeout: '請求麥克風逾時，不影響參考音訊播放。',
+
+            // Admin
+            admin: '管理',
+            adminTitle: '音訊資料庫管理',
+            adminHelp: '「匯入」會保留現有句子；「匯入並取代」會覆蓋現有句子。',
+            adminStatsLoading: '正在讀取資料庫……',
+            adminStats: '{count} 個音訊 · {size}',
+            exportToFile: '匯出至檔案',
+            importKeep: '匯入',
+            importReplace: '匯入並取代',
+            cleanDatabase: '清空資料庫',
+            confirmClean: '確認全部刪除',
+            back: '返回',
+            noOverridesToExport: '沒有可匯出的自訂音訊。',
+            exporting: '正在準備備份……',
+            exportComplete: '已匯出 {count} 個音訊（{size}）。',
+            exportFailed: '匯出失敗：{error}',
+            importing: '正在讀取並驗證備份……',
+            importCheckingProgress: '正在驗證備份……{done}/{total}',
+            importWritingProgress: '正在儲存備份……{done}/{total}',
+            importPartialFailed: '匯入已停止，已儲存 {committed}/{total} 個詞條：{error}。用同一個按鈕重新匯入同一檔案即可完成其餘部分。',
+            importPartialCancelled: '匯入已取消，已儲存 {committed}/{total} 個詞條。用同一個按鈕重新匯入同一檔案即可完成其餘部分。',
+            importSummaryKeep: '已匯入 {imported} 個；略過 {skipped} 個現有項目。',
+            importSummaryReplace: '已匯入 {imported} 個；取代 {replaced} 個現有項目。',
+            importFailed: '匯入失敗：{error}',
+            invalidBackup: '此檔案不是有效的 BunPro Local Audio Override 備份。',
+            unsupportedBackupVersion: '不支援的備份格式版本：{version}',
+            backupEntryTooLarge: '備份中有音訊超過 50 MB。',
+            backupChecksumMismatch: '以下句子的備份校驗失敗：{sentence}',
+            chooseBackupFile: '選擇 BunPro Local Audio Override 備份檔案',
+            cleanWarning: '請再次按下確認按鈕，以刪除所有已儲存音訊。',
+            cleaning: '正在刪除所有自訂音訊……',
+            cleaned: '已刪除 {count} 個自訂音訊。',
+            databaseError: '資料庫操作失敗：{error}',
+
+            // Compression
+            compressAudio: '壓縮音訊',
+            cancelCompression: '取消壓縮',
+            autoCompressLabel: '自動壓縮新音訊',
+            autoCompressTitle: '對按下 Save 儲存或從 .bpao 備份匯入的新音訊進行單聲道 Opus 有損壓縮；不會改動現有音訊庫。此設定會被記住。',
+            autoCompressionProgress: '正在自動壓縮新音訊 {done}/{total}……',
+            autoCompressionSummary: '自動壓縮：已壓縮 {changed}，略過 {skipped}，失敗 {failed} · 節省 {saved}。',
+            autoCompressionCancelled: '已取消，未儲存或匯入任何音訊。',
+            autoCompressionUnavailable: '自動壓縮無法使用：{error}。原音訊將照常儲存或匯入。',
+            compressionConfirm: '將全部已儲存音訊壓縮為 64 kbps 單聲道 Opus？這是有損壓縮，不能恢復原始音質；如需保留原版，請先匯出備份。僅以更小且驗證通過的音訊取代原音訊。過程靜音，耗時約為音訊總時長。請保持分頁開啟，可隨時取消。',
+            compressionStarting: '正在準備壓縮……',
+            compressionProgress: '正在壓縮 {done}/{total} · 節省 {saved} · 已壓縮 {changed}，略過 {skipped}，失敗 {failed}',
+            compressionComplete: '壓縮完成：已壓縮 {changed}，略過 {skipped}，失敗 {failed} · 節省 {saved}。',
+            compressionCancelled: '已取消：已壓縮 {changed}，略過 {skipped}，失敗 {failed} · 節省 {saved}。已完成的壓縮已保留。',
+            compressionCancelling: '正在取消壓縮……',
+            compressionFailed: '壓縮已停止：{error}。已完成的壓縮已保留；未處理的音訊不變。',
+            compressionAbort: '音訊壓縮已取消。',
+            compressionRecorderUnavailable: '目前瀏覽器無法使用 MediaRecorder 編碼 Opus 音訊。',
+            compressionEncoderUnavailable: '目前瀏覽器沒有可用的 Ogg/WebM Opus 編碼器。',
+            compressionContextUnavailable: '音訊壓縮環境無法使用。',
+            compressionNoSamples: '原音訊沒有可解碼的取樣。',
+            compressionSuspended: '音訊處理已暫停。請保持此分頁處於使用中狀態後重試。',
+            compressionEncoderFailed: 'Opus 編碼器發生錯誤。',
+            compressionStoppedEarly: '音訊編碼在片段結束前停止。',
+            compressionTimedOut: '音訊編碼逾時。請保持此分頁處於使用中狀態後重試。',
+            compressionEmptyClip: 'Opus 編碼器產生了空音訊。',
+            compressionValidationFailed: '編碼後音訊的時長或聲道驗證失敗；已保留原音訊。',
         },
         es: {
+            // General
             panelTitle: 'Sustitución de audio local',
             statusWaiting: 'Esperando la respuesta correcta',
             statusNone: 'Sin sustitución local',
@@ -374,8 +593,81 @@
             recordingMicProcessingClean: 'Micro: filtrado',
             recordingMicProcessingRawTitle: 'El procesamiento del micrófono está desactivado (sin cancelación de eco). Este ajuste evita que se bloquee la reproducción. Haz clic para cambiarlo.',
             recordingMicProcessingCleanTitle: 'El procesamiento del micrófono está activado (cancelación de eco y reducción de ruido). Evita que el audio de referencia entre en la grabación, pero Chrome puede bloquear la reproducción en algunos dispositivos. Haz clic para cambiarlo.',
+
+            // Recording gain
+            micGainLabel: 'Ganancia mic.',
+            micGainTitle: 'Amplifica tu voz en la próxima grabación con P. 1× conserva el volumen original; prueba 2× si hablas bajo. Se guarda la opción. No cambia el audio de referencia ni las tomas anteriores; también amplifica el ruido.',
+            micGainUnavailable: 'No se pudo iniciar la ganancia. La referencia continúa. Desactiva y activa Rec, y pulsa P para reintentar; usa 1× para grabar sin ganancia.',
+
+            // Microphone recovery
+            micUnavailable: 'Micrófono no disponible. La referencia continúa. Reconecta el dispositivo o desactiva y activa Rec para reintentar.',
+            micRetryWaiting: 'Grabación en pausa por un error. Pulsa P en {seconds}s, o reconecta el dispositivo o desactiva y activa Rec.',
+            micRequestTimeout: 'La solicitud del micrófono agotó el tiempo de espera; la referencia no se ve afectada.',
+
+            // Admin
+            admin: 'Administrar',
+            adminTitle: 'Administración de la base de audio',
+            adminHelp: 'Importar conserva las frases existentes. Importar y reemplazar las sobrescribe.',
+            adminStatsLoading: 'Leyendo la base de datos…',
+            adminStats: '{count} clips · {size}',
+            exportToFile: 'Exportar a archivo',
+            importKeep: 'Importar',
+            importReplace: 'Importar y reemplazar',
+            cleanDatabase: 'Vaciar base de datos',
+            confirmClean: 'Confirmar borrado total',
+            back: 'Volver',
+            noOverridesToExport: 'No hay audios personalizados para exportar.',
+            exporting: 'Preparando la copia de seguridad…',
+            exportComplete: 'Se exportaron {count} clips ({size}).',
+            exportFailed: 'Error al exportar: {error}',
+            importing: 'Leyendo y validando la copia de seguridad…',
+            importCheckingProgress: 'Verificando la copia de seguridad… {done}/{total}',
+            importWritingProgress: 'Guardando la copia de seguridad… {done}/{total}',
+            importPartialFailed: 'Importación detenida tras guardar {committed}/{total} entradas: {error}. Vuelve a importar el mismo archivo con el mismo botón para terminar.',
+            importPartialCancelled: 'Importación cancelada tras guardar {committed}/{total} entradas. Vuelve a importar el mismo archivo con el mismo botón para terminar.',
+            importSummaryKeep: 'Importados: {imported}; omitidos por existir: {skipped}.',
+            importSummaryReplace: 'Importados: {imported}; reemplazados: {replaced}.',
+            importFailed: 'Error al importar: {error}',
+            invalidBackup: 'No es una copia válida de BunPro Local Audio Override.',
+            unsupportedBackupVersion: 'Versión de copia no compatible: {version}',
+            backupEntryTooLarge: 'Un clip de la copia supera los 50 MB.',
+            backupChecksumMismatch: 'La suma de comprobación no coincide para: {sentence}',
+            chooseBackupFile: 'Elegir una copia de BunPro Local Audio Override',
+            cleanWarning: 'Pulsa de nuevo el botón de confirmación para borrar todos los clips.',
+            cleaning: 'Eliminando todos los audios personalizados…',
+            cleaned: 'Se eliminaron {count} audios personalizados.',
+            databaseError: 'Error de la base de datos: {error}',
+
+            // Compression
+            compressAudio: 'Comprimir audio',
+            cancelCompression: 'Cancelar compresión',
+            autoCompressLabel: 'Comprimir automáticamente los nuevos audios',
+            autoCompressTitle: 'Comprime con pérdida en Opus mono los nuevos audios guardados con Save o importados desde copias .bpao. No modifica la biblioteca existente. Se recuerda tu elección.',
+            autoCompressionProgress: 'Comprimiendo automáticamente los nuevos audios {done}/{total}…',
+            autoCompressionSummary: 'Compresión automática: {changed} convertidos, {skipped} omitidos, {failed} fallidos · ahorro {saved}.',
+            autoCompressionCancelled: 'Cancelado. No se guardó ni importó ningún audio.',
+            autoCompressionUnavailable: 'Compresión automática no disponible: {error}. Los audios originales se guardarán o importarán normalmente.',
+            compressionConfirm: '¿Comprimir los audios guardados a Opus mono de 64 kbps? Es una compresión con pérdida. Exporta una copia para conservar los originales. Solo se reemplazan los clips verificados y más pequeños. El proceso es silencioso y tarda aproximadamente la duración total del audio. Mantén la pestaña abierta; puedes cancelar.',
+            compressionStarting: 'Preparando compresión…',
+            compressionProgress: 'Comprimiendo {done}/{total} · ahorro {saved} · convertidos {changed}, omitidos {skipped}, fallidos {failed}',
+            compressionComplete: 'Completado: {changed} convertidos, {skipped} omitidos, {failed} fallidos · ahorro {saved}.',
+            compressionCancelled: 'Cancelado: {changed} convertidos, {skipped} omitidos, {failed} fallidos · ahorro {saved}. Se conservan los cambios completados.',
+            compressionCancelling: 'Cancelando…',
+            compressionFailed: 'Compresión detenida: {error}. Se conservan los cambios completados; los demás clips no cambian.',
+            compressionAbort: 'Se canceló la compresión de audio.',
+            compressionRecorderUnavailable: 'Este navegador no puede codificar audio Opus con MediaRecorder.',
+            compressionEncoderUnavailable: 'Este navegador no tiene un codificador Ogg/WebM Opus compatible.',
+            compressionContextUnavailable: 'El contexto de compresión de audio no está disponible.',
+            compressionNoSamples: 'El audio original no tiene muestras decodificables.',
+            compressionSuspended: 'El procesamiento de audio está suspendido. Mantén esta pestaña activa e inténtalo de nuevo.',
+            compressionEncoderFailed: 'El codificador Opus falló.',
+            compressionStoppedEarly: 'La codificación de audio se detuvo antes de que terminara el clip.',
+            compressionTimedOut: 'La codificación de audio agotó el tiempo de espera. Mantén esta pestaña activa e inténtalo de nuevo.',
+            compressionEmptyClip: 'El codificador Opus produjo un clip vacío.',
+            compressionValidationFailed: 'El audio codificado no superó la validación de duración o canales; se conservó el original.',
         },
         id: {
+            // General
             panelTitle: 'Pengganti audio lokal',
             statusWaiting: 'Menunggu jawaban benar',
             statusNone: 'Belum ada pengganti lokal',
@@ -444,8 +736,81 @@
             recordingMicProcessingClean: 'Mikrofon: bersih',
             recordingMicProcessingRawTitle: 'Pemrosesan mikrofon nonaktif (tanpa pembatalan gema). Pengaturan ini mencegah pemutaran macet. Klik untuk mengganti.',
             recordingMicProcessingCleanTitle: 'Pemrosesan mikrofon aktif (pembatalan gema dan pengurangan derau). Mencegah audio referensi masuk ke rekaman, tetapi Chrome dapat membuat pemutaran macet pada beberapa perangkat. Klik untuk mengganti.',
+
+            // Recording gain
+            micGainLabel: 'Gain mikrofon',
+            micGainTitle: 'Perkuat suara mulai rekaman P berikutnya. 1× adalah volume asli; coba 2× untuk suara pelan. Pilihan disimpan. Audio referensi dan rekaman lama tidak berubah; kebisingan latar juga meningkat.',
+            micGainUnavailable: 'Gain mikrofon tidak dapat dimulai. Referensi tetap diputar. Matikan dan aktifkan Rec lalu tekan P; pilih 1× untuk merekam tanpa gain.',
+
+            // Microphone recovery
+            micUnavailable: 'Mikrofon tidak tersedia. Audio referensi tetap diputar. Sambungkan perangkat atau matikan dan aktifkan Rec untuk mencoba lagi.',
+            micRetryWaiting: 'Rekaman dijeda karena galat. Tekan P setelah {seconds} detik, atau sambungkan perangkat atau matikan dan aktifkan Rec.',
+            micRequestTimeout: 'Permintaan mikrofon kehabisan waktu; audio referensi tidak terpengaruh.',
+
+            // Admin
+            admin: 'Admin',
+            adminTitle: 'Administrasi basis data audio',
+            adminHelp: 'Impor mempertahankan kalimat yang ada. Impor & Ganti akan menimpanya.',
+            adminStatsLoading: 'Membaca basis data…',
+            adminStats: '{count} klip · {size}',
+            exportToFile: 'Ekspor ke Berkas',
+            importKeep: 'Impor',
+            importReplace: 'Impor & Ganti',
+            cleanDatabase: 'Bersihkan Basis Data',
+            confirmClean: 'Konfirmasi Hapus Semua',
+            back: 'Kembali',
+            noOverridesToExport: 'Tidak ada audio khusus untuk diekspor.',
+            exporting: 'Menyiapkan cadangan…',
+            exportComplete: 'Mengekspor {count} klip ({size}).',
+            exportFailed: 'Ekspor gagal: {error}',
+            importing: 'Membaca dan memvalidasi cadangan…',
+            importCheckingProgress: 'Memeriksa cadangan… {done}/{total}',
+            importWritingProgress: 'Menyimpan cadangan… {done}/{total}',
+            importPartialFailed: 'Impor berhenti setelah menyimpan {committed}/{total} entri: {error}. Impor kembali berkas yang sama dengan tombol yang sama untuk menyelesaikannya.',
+            importPartialCancelled: 'Impor dibatalkan setelah menyimpan {committed}/{total} entri. Impor kembali berkas yang sama dengan tombol yang sama untuk menyelesaikannya.',
+            importSummaryKeep: 'Diimpor {imported}; dilewati {skipped} entri yang sudah ada.',
+            importSummaryReplace: 'Diimpor {imported}; diganti {replaced} entri yang sudah ada.',
+            importFailed: 'Impor gagal: {error}',
+            invalidBackup: 'Berkas ini bukan cadangan BunPro Local Audio Override yang valid.',
+            unsupportedBackupVersion: 'Versi format cadangan tidak didukung: {version}',
+            backupEntryTooLarge: 'Ada klip audio dalam cadangan yang lebih besar dari 50 MB.',
+            backupChecksumMismatch: 'Checksum cadangan tidak cocok untuk: {sentence}',
+            chooseBackupFile: 'Pilih berkas cadangan BunPro Local Audio Override',
+            cleanWarning: 'Klik tombol konfirmasi sekali lagi untuk menghapus semua klip tersimpan.',
+            cleaning: 'Menghapus semua audio khusus…',
+            cleaned: 'Menghapus {count} audio khusus.',
+            databaseError: 'Operasi basis data gagal: {error}',
+
+            // Compression
+            compressAudio: 'Kompres Audio',
+            cancelCompression: 'Batalkan Kompresi',
+            autoCompressLabel: 'Kompres otomatis audio baru',
+            autoCompressTitle: 'Gunakan kompresi lossy Opus mono untuk audio baru yang disimpan dengan Save atau diimpor dari cadangan .bpao. Audio di pustaka yang sudah ada tidak diubah. Pilihan Anda akan diingat.',
+            autoCompressionProgress: 'Mengompres otomatis audio baru {done}/{total}…',
+            autoCompressionSummary: 'Kompresi otomatis: {changed} dikonversi, {skipped} dilewati, {failed} gagal · hemat {saved}.',
+            autoCompressionCancelled: 'Dibatalkan. Tidak ada audio yang disimpan atau diimpor.',
+            autoCompressionUnavailable: 'Kompresi otomatis tidak tersedia: {error}. Audio asli akan disimpan atau diimpor seperti biasa.',
+            compressionConfirm: 'Kompres audio tersimpan ke Opus mono 64 kbps? Kompresi ini lossy. Ekspor cadangan untuk menyimpan kualitas asli. Hanya klip terverifikasi dan lebih kecil yang menggantikan aslinya. Proses senyap dan memerlukan sekitar total durasi audio. Biarkan tab terbuka; Anda dapat membatalkan.',
+            compressionStarting: 'Menyiapkan kompresi…',
+            compressionProgress: 'Mengompres {done}/{total} · hemat {saved} · dikonversi {changed}, dilewati {skipped}, gagal {failed}',
+            compressionComplete: 'Selesai: {changed} dikonversi, {skipped} dilewati, {failed} gagal · hemat {saved}.',
+            compressionCancelled: 'Dibatalkan: {changed} dikonversi, {skipped} dilewati, {failed} gagal · hemat {saved}. Perubahan selesai disimpan.',
+            compressionCancelling: 'Membatalkan…',
+            compressionFailed: 'Kompresi berhenti: {error}. Perubahan selesai disimpan; klip lainnya tidak berubah.',
+            compressionAbort: 'Kompresi audio dibatalkan.',
+            compressionRecorderUnavailable: 'Browser ini tidak dapat mengodekan audio Opus dengan MediaRecorder.',
+            compressionEncoderUnavailable: 'Browser ini tidak memiliki encoder Ogg/WebM Opus yang didukung.',
+            compressionContextUnavailable: 'Konteks kompresi audio tidak tersedia.',
+            compressionNoSamples: 'Audio sumber tidak memiliki sampel yang dapat didekodekan.',
+            compressionSuspended: 'Pemrosesan audio ditangguhkan. Biarkan tab ini aktif dan coba lagi.',
+            compressionEncoderFailed: 'Encoder Opus gagal.',
+            compressionStoppedEarly: 'Pengodean audio berhenti sebelum klip selesai.',
+            compressionTimedOut: 'Pengodean audio melewati batas waktu. Biarkan tab ini aktif dan coba lagi.',
+            compressionEmptyClip: 'Encoder Opus menghasilkan klip kosong.',
+            compressionValidationFailed: 'Audio hasil pengodean gagal dalam validasi durasi atau kanal; audio asli dipertahankan.',
         },
         fr: {
+            // General
             panelTitle: 'Remplacement audio local',
             statusWaiting: 'En attente de la bonne réponse',
             statusNone: 'Aucun remplacement local',
@@ -514,8 +879,81 @@
             recordingMicProcessingClean: 'Micro : filtré',
             recordingMicProcessingRawTitle: 'Le traitement du microphone est désactivé (sans suppression de l’écho). Ce réglage évite les blocages de lecture. Cliquez pour changer.',
             recordingMicProcessingCleanTitle: 'Le traitement du microphone est activé (suppression de l’écho et réduction du bruit). Il évite que l’audio de référence soit capté dans l’enregistrement, mais Chrome peut bloquer la lecture sur certains appareils. Cliquez pour changer.',
+
+            // Recording gain
+            micGainLabel: 'Gain micro',
+            micGainTitle: 'Amplifie votre voix dès le prochain enregistrement avec P. 1× garde le volume original ; essayez 2× si vous parlez doucement. Le réglage est mémorisé. Aucun effet sur la référence ou les prises précédentes ; le bruit de fond augmente aussi.',
+            micGainUnavailable: 'Impossible de démarrer le gain micro. La référence continue. Désactivez puis réactivez Rec et appuyez sur P ; choisissez 1× pour enregistrer sans gain.',
+
+            // Microphone recovery
+            micUnavailable: 'Microphone indisponible. La référence continue. Reconnectez le périphérique ou désactivez puis réactivez Rec.',
+            micRetryWaiting: 'Enregistrement suspendu après une erreur. Appuyez sur P dans {seconds}s, ou reconnectez le périphérique ou désactivez puis réactivez Rec.',
+            micRequestTimeout: 'La demande de microphone a expiré ; la référence reste inchangée.',
+
+            // Admin
+            admin: 'Administration',
+            adminTitle: 'Administration de la base audio',
+            adminHelp: 'Importer conserve les phrases existantes. Importer et remplacer les écrase.',
+            adminStatsLoading: 'Lecture de la base de données…',
+            adminStats: '{count} extraits · {size}',
+            exportToFile: 'Exporter vers un fichier',
+            importKeep: 'Importer',
+            importReplace: 'Importer et remplacer',
+            cleanDatabase: 'Vider la base de données',
+            confirmClean: 'Confirmer la suppression',
+            back: 'Retour',
+            noOverridesToExport: 'Aucun audio personnalisé à exporter.',
+            exporting: 'Préparation de la sauvegarde…',
+            exportComplete: '{count} extraits exportés ({size}).',
+            exportFailed: 'Échec de l’exportation : {error}',
+            importing: 'Lecture et validation de la sauvegarde…',
+            importCheckingProgress: 'Vérification de la sauvegarde… {done}/{total}',
+            importWritingProgress: 'Enregistrement de la sauvegarde… {done}/{total}',
+            importPartialFailed: 'Importation arrêtée après l’enregistrement de {committed}/{total} entrées : {error}. Importez à nouveau le même fichier avec le même bouton pour terminer.',
+            importPartialCancelled: 'Importation annulée après l’enregistrement de {committed}/{total} entrées. Importez à nouveau le même fichier avec le même bouton pour terminer.',
+            importSummaryKeep: '{imported} importés ; {skipped} entrées existantes ignorées.',
+            importSummaryReplace: '{imported} importés ; {replaced} entrées existantes remplacées.',
+            importFailed: 'Échec de l’importation : {error}',
+            invalidBackup: 'Ce fichier n’est pas une sauvegarde BunPro Local Audio Override valide.',
+            unsupportedBackupVersion: 'Version de sauvegarde non prise en charge : {version}',
+            backupEntryTooLarge: 'Un extrait audio de la sauvegarde dépasse 50 Mo.',
+            backupChecksumMismatch: 'Somme de contrôle incorrecte pour : {sentence}',
+            chooseBackupFile: 'Choisir une sauvegarde BunPro Local Audio Override',
+            cleanWarning: 'Cliquez de nouveau sur le bouton de confirmation pour tout supprimer.',
+            cleaning: 'Suppression de tous les audios personnalisés…',
+            cleaned: '{count} audios personnalisés supprimés.',
+            databaseError: 'Échec de l’opération de base de données : {error}',
+
+            // Compression
+            compressAudio: 'Compresser les audios',
+            cancelCompression: 'Annuler la compression',
+            autoCompressLabel: 'Compresser automatiquement les nouveaux audios',
+            autoCompressTitle: 'Compresse avec perte en Opus mono les nouveaux audios enregistrés avec Save ou importés depuis une sauvegarde .bpao. La bibliothèque existante reste inchangée. Votre choix est mémorisé.',
+            autoCompressionProgress: 'Compression automatique des nouveaux audios {done}/{total}…',
+            autoCompressionSummary: 'Compression automatique : {changed} convertis, {skipped} ignorés, {failed} échecs · gain {saved}.',
+            autoCompressionCancelled: 'Annulé. Aucun audio n’a été enregistré ni importé.',
+            autoCompressionUnavailable: 'Compression automatique indisponible : {error}. Les audios originaux seront enregistrés ou importés normalement.',
+            compressionConfirm: 'Compresser les audios enregistrés en Opus mono à 64 kbps ? Cette compression est avec perte. Exportez une sauvegarde pour conserver les originaux. Seuls les clips vérifiés et plus petits les remplacent. Le traitement est silencieux et dure environ la durée totale des audios. Gardez cet onglet ouvert ; vous pouvez annuler.',
+            compressionStarting: 'Préparation de la compression…',
+            compressionProgress: 'Compression {done}/{total} · gain {saved} · convertis {changed}, ignorés {skipped}, échecs {failed}',
+            compressionComplete: 'Terminé : {changed} convertis, {skipped} ignorés, {failed} échecs · gain {saved}.',
+            compressionCancelled: 'Annulé : {changed} convertis, {skipped} ignorés, {failed} échecs · gain {saved}. Les changements terminés sont conservés.',
+            compressionCancelling: 'Annulation…',
+            compressionFailed: 'Compression arrêtée : {error}. Les changements terminés sont conservés ; les autres clips restent inchangés.',
+            compressionAbort: 'La compression audio a été annulée.',
+            compressionRecorderUnavailable: 'Ce navigateur ne peut pas encoder l’audio Opus avec MediaRecorder.',
+            compressionEncoderUnavailable: 'Ce navigateur ne dispose d’aucun encodeur Ogg/WebM Opus compatible.',
+            compressionContextUnavailable: 'Le contexte de compression audio est indisponible.',
+            compressionNoSamples: 'L’audio source ne contient aucun échantillon décodable.',
+            compressionSuspended: 'Le traitement audio est suspendu. Gardez cet onglet actif et réessayez.',
+            compressionEncoderFailed: 'L’encodeur Opus a échoué.',
+            compressionStoppedEarly: 'L’encodage audio s’est arrêté avant la fin du clip.',
+            compressionTimedOut: 'Le délai d’encodage audio a expiré. Gardez cet onglet actif et réessayez.',
+            compressionEmptyClip: 'L’encodeur Opus a produit un clip vide.',
+            compressionValidationFailed: 'La validation de la durée ou des canaux de l’audio encodé a échoué ; l’original a été conservé.',
         },
         ja: {
+            // General
             panelTitle: 'ローカル音声の上書き',
             statusWaiting: '正解待ち',
             statusNone: 'ローカル上書きなし',
@@ -584,215 +1022,18 @@
             recordingMicProcessingClean: 'マイク：ノイズ除去',
             recordingMicProcessingRawTitle: 'マイク処理はオフです（エコー除去なし）。再生が止まるのを防ぐ設定です。クリックで切り替えます。',
             recordingMicProcessingCleanTitle: 'マイク処理はオンです（エコー除去・ノイズ抑制）。お手本の音声が録音に混ざるのを防ぎますが、一部のデバイスでは Chrome の再生が止まることがあります。クリックで切り替えます。',
-        },
-    });
 
-    const ADMIN_I18N = Object.freeze({
-        en: {
-            admin: 'Admin',
-            adminTitle: 'Audio database admin',
-            adminHelp: 'Import keeps existing sentences. Import & Replace overwrites them.',
-            adminStatsLoading: 'Reading database…',
-            adminStats: '{count} clips · {size}',
-            exportToFile: 'Export to File',
-            importKeep: 'Import',
-            importReplace: 'Import & Replace',
-            cleanDatabase: 'Clean Database',
-            confirmClean: 'Confirm Delete All',
-            back: 'Back',
-            noOverridesToExport: 'There are no saved audio overrides to export.',
-            exporting: 'Preparing backup…',
-            exportComplete: 'Exported {count} clips ({size}).',
-            exportFailed: 'Export failed: {error}',
-            importing: 'Reading and validating backup…',
-            importCheckingProgress: 'Checking backup… {done}/{total}',
-            importWritingProgress: 'Saving backup… {done}/{total}',
-            importPartialFailed: 'Import stopped after saving {committed}/{total} entries: {error}. Import the same file again with the same button to finish.',
-            importPartialCancelled: 'Import cancelled after saving {committed}/{total} entries. Import the same file again with the same button to finish.',
-            importSummaryKeep: 'Imported {imported}; skipped {skipped} existing entries.',
-            importSummaryReplace: 'Imported {imported}; replaced {replaced} existing entries.',
-            importFailed: 'Import failed: {error}',
-            invalidBackup: 'This is not a valid BunPro Local Audio Override backup.',
-            unsupportedBackupVersion: 'Unsupported backup format version: {version}',
-            backupEntryTooLarge: 'An audio clip in the backup is larger than 50 MB.',
-            backupChecksumMismatch: 'Backup checksum mismatch for: {sentence}',
-            chooseBackupFile: 'Choose a BunPro Local Audio Override backup file',
-            cleanWarning: 'Click the confirmation button again to delete every saved clip.',
-            cleaning: 'Deleting all saved audio overrides…',
-            cleaned: 'Deleted {count} saved audio overrides.',
-            databaseError: 'Database operation failed: {error}',
-        },
-        'zh-CN': {
-            admin: '管理',
-            adminTitle: '音频数据库管理',
-            adminHelp: '「导入」保留现有句子；「导入并替换」会覆盖现有句子。',
-            adminStatsLoading: '正在读取数据库……',
-            adminStats: '{count} 个音频 · {size}',
-            exportToFile: '导出到文件',
-            importKeep: '导入',
-            importReplace: '导入并替换',
-            cleanDatabase: '清空数据库',
-            confirmClean: '确认全部删除',
-            back: '返回',
-            noOverridesToExport: '没有可导出的自定义音频。',
-            exporting: '正在准备备份……',
-            exportComplete: '已导出 {count} 个音频（{size}）。',
-            exportFailed: '导出失败：{error}',
-            importing: '正在读取并验证备份……',
-            importCheckingProgress: '正在校验备份……{done}/{total}',
-            importWritingProgress: '正在保存备份……{done}/{total}',
-            importPartialFailed: '导入已停止，已保存 {committed}/{total} 个词条：{error}。用同一个按钮重新导入同一文件即可完成剩余部分。',
-            importPartialCancelled: '导入已取消，已保存 {committed}/{total} 个词条。用同一个按钮重新导入同一文件即可完成剩余部分。',
-            importSummaryKeep: '已导入 {imported} 个；跳过 {skipped} 个现有词条。',
-            importSummaryReplace: '已导入 {imported} 个；替换 {replaced} 个现有词条。',
-            importFailed: '导入失败：{error}',
-            invalidBackup: '该文件不是有效的 BunPro Local Audio Override 备份。',
-            unsupportedBackupVersion: '不支持的备份格式版本：{version}',
-            backupEntryTooLarge: '备份中有音频超过 50 MB。',
-            backupChecksumMismatch: '以下句子的备份校验失败：{sentence}',
-            chooseBackupFile: '选择 BunPro Local Audio Override 备份文件',
-            cleanWarning: '请再次点击确认按钮，以删除所有已保存音频。',
-            cleaning: '正在删除所有自定义音频……',
-            cleaned: '已删除 {count} 个自定义音频。',
-            databaseError: '数据库操作失败：{error}',
-        },
-        'zh-TW': {
-            admin: '管理',
-            adminTitle: '音訊資料庫管理',
-            adminHelp: '「匯入」會保留現有句子；「匯入並取代」會覆蓋現有句子。',
-            adminStatsLoading: '正在讀取資料庫……',
-            adminStats: '{count} 個音訊 · {size}',
-            exportToFile: '匯出至檔案',
-            importKeep: '匯入',
-            importReplace: '匯入並取代',
-            cleanDatabase: '清空資料庫',
-            confirmClean: '確認全部刪除',
-            back: '返回',
-            noOverridesToExport: '沒有可匯出的自訂音訊。',
-            exporting: '正在準備備份……',
-            exportComplete: '已匯出 {count} 個音訊（{size}）。',
-            exportFailed: '匯出失敗：{error}',
-            importing: '正在讀取並驗證備份……',
-            importCheckingProgress: '正在驗證備份……{done}/{total}',
-            importWritingProgress: '正在儲存備份……{done}/{total}',
-            importPartialFailed: '匯入已停止，已儲存 {committed}/{total} 個詞條：{error}。用同一個按鈕重新匯入同一檔案即可完成其餘部分。',
-            importPartialCancelled: '匯入已取消，已儲存 {committed}/{total} 個詞條。用同一個按鈕重新匯入同一檔案即可完成其餘部分。',
-            importSummaryKeep: '已匯入 {imported} 個；略過 {skipped} 個現有項目。',
-            importSummaryReplace: '已匯入 {imported} 個；取代 {replaced} 個現有項目。',
-            importFailed: '匯入失敗：{error}',
-            invalidBackup: '此檔案不是有效的 BunPro Local Audio Override 備份。',
-            unsupportedBackupVersion: '不支援的備份格式版本：{version}',
-            backupEntryTooLarge: '備份中有音訊超過 50 MB。',
-            backupChecksumMismatch: '以下句子的備份校驗失敗：{sentence}',
-            chooseBackupFile: '選擇 BunPro Local Audio Override 備份檔案',
-            cleanWarning: '請再次按下確認按鈕，以刪除所有已儲存音訊。',
-            cleaning: '正在刪除所有自訂音訊……',
-            cleaned: '已刪除 {count} 個自訂音訊。',
-            databaseError: '資料庫操作失敗：{error}',
-        },
-        es: {
-            admin: 'Administrar',
-            adminTitle: 'Administración de la base de audio',
-            adminHelp: 'Importar conserva las frases existentes. Importar y reemplazar las sobrescribe.',
-            adminStatsLoading: 'Leyendo la base de datos…',
-            adminStats: '{count} clips · {size}',
-            exportToFile: 'Exportar a archivo',
-            importKeep: 'Importar',
-            importReplace: 'Importar y reemplazar',
-            cleanDatabase: 'Vaciar base de datos',
-            confirmClean: 'Confirmar borrado total',
-            back: 'Volver',
-            noOverridesToExport: 'No hay audios personalizados para exportar.',
-            exporting: 'Preparando la copia de seguridad…',
-            exportComplete: 'Se exportaron {count} clips ({size}).',
-            exportFailed: 'Error al exportar: {error}',
-            importing: 'Leyendo y validando la copia de seguridad…',
-            importCheckingProgress: 'Verificando la copia de seguridad… {done}/{total}',
-            importWritingProgress: 'Guardando la copia de seguridad… {done}/{total}',
-            importPartialFailed: 'Importación detenida tras guardar {committed}/{total} entradas: {error}. Vuelve a importar el mismo archivo con el mismo botón para terminar.',
-            importPartialCancelled: 'Importación cancelada tras guardar {committed}/{total} entradas. Vuelve a importar el mismo archivo con el mismo botón para terminar.',
-            importSummaryKeep: 'Importados: {imported}; omitidos por existir: {skipped}.',
-            importSummaryReplace: 'Importados: {imported}; reemplazados: {replaced}.',
-            importFailed: 'Error al importar: {error}',
-            invalidBackup: 'No es una copia válida de BunPro Local Audio Override.',
-            unsupportedBackupVersion: 'Versión de copia no compatible: {version}',
-            backupEntryTooLarge: 'Un clip de la copia supera los 50 MB.',
-            backupChecksumMismatch: 'La suma de comprobación no coincide para: {sentence}',
-            chooseBackupFile: 'Elegir una copia de BunPro Local Audio Override',
-            cleanWarning: 'Pulsa de nuevo el botón de confirmación para borrar todos los clips.',
-            cleaning: 'Eliminando todos los audios personalizados…',
-            cleaned: 'Se eliminaron {count} audios personalizados.',
-            databaseError: 'Error de la base de datos: {error}',
-        },
-        id: {
-            admin: 'Admin',
-            adminTitle: 'Administrasi basis data audio',
-            adminHelp: 'Impor mempertahankan kalimat yang ada. Impor & Ganti akan menimpanya.',
-            adminStatsLoading: 'Membaca basis data…',
-            adminStats: '{count} klip · {size}',
-            exportToFile: 'Ekspor ke Berkas',
-            importKeep: 'Impor',
-            importReplace: 'Impor & Ganti',
-            cleanDatabase: 'Bersihkan Basis Data',
-            confirmClean: 'Konfirmasi Hapus Semua',
-            back: 'Kembali',
-            noOverridesToExport: 'Tidak ada audio khusus untuk diekspor.',
-            exporting: 'Menyiapkan cadangan…',
-            exportComplete: 'Mengekspor {count} klip ({size}).',
-            exportFailed: 'Ekspor gagal: {error}',
-            importing: 'Membaca dan memvalidasi cadangan…',
-            importCheckingProgress: 'Memeriksa cadangan… {done}/{total}',
-            importWritingProgress: 'Menyimpan cadangan… {done}/{total}',
-            importPartialFailed: 'Impor berhenti setelah menyimpan {committed}/{total} entri: {error}. Impor kembali berkas yang sama dengan tombol yang sama untuk menyelesaikannya.',
-            importPartialCancelled: 'Impor dibatalkan setelah menyimpan {committed}/{total} entri. Impor kembali berkas yang sama dengan tombol yang sama untuk menyelesaikannya.',
-            importSummaryKeep: 'Diimpor {imported}; dilewati {skipped} entri yang sudah ada.',
-            importSummaryReplace: 'Diimpor {imported}; diganti {replaced} entri yang sudah ada.',
-            importFailed: 'Impor gagal: {error}',
-            invalidBackup: 'Berkas ini bukan cadangan BunPro Local Audio Override yang valid.',
-            unsupportedBackupVersion: 'Versi format cadangan tidak didukung: {version}',
-            backupEntryTooLarge: 'Ada klip audio dalam cadangan yang lebih besar dari 50 MB.',
-            backupChecksumMismatch: 'Checksum cadangan tidak cocok untuk: {sentence}',
-            chooseBackupFile: 'Pilih berkas cadangan BunPro Local Audio Override',
-            cleanWarning: 'Klik tombol konfirmasi sekali lagi untuk menghapus semua klip tersimpan.',
-            cleaning: 'Menghapus semua audio khusus…',
-            cleaned: 'Menghapus {count} audio khusus.',
-            databaseError: 'Operasi basis data gagal: {error}',
-        },
-        fr: {
-            admin: 'Administration',
-            adminTitle: 'Administration de la base audio',
-            adminHelp: 'Importer conserve les phrases existantes. Importer et remplacer les écrase.',
-            adminStatsLoading: 'Lecture de la base de données…',
-            adminStats: '{count} extraits · {size}',
-            exportToFile: 'Exporter vers un fichier',
-            importKeep: 'Importer',
-            importReplace: 'Importer et remplacer',
-            cleanDatabase: 'Vider la base de données',
-            confirmClean: 'Confirmer la suppression',
-            back: 'Retour',
-            noOverridesToExport: 'Aucun audio personnalisé à exporter.',
-            exporting: 'Préparation de la sauvegarde…',
-            exportComplete: '{count} extraits exportés ({size}).',
-            exportFailed: 'Échec de l’exportation : {error}',
-            importing: 'Lecture et validation de la sauvegarde…',
-            importCheckingProgress: 'Vérification de la sauvegarde… {done}/{total}',
-            importWritingProgress: 'Enregistrement de la sauvegarde… {done}/{total}',
-            importPartialFailed: 'Importation arrêtée après l’enregistrement de {committed}/{total} entrées : {error}. Importez à nouveau le même fichier avec le même bouton pour terminer.',
-            importPartialCancelled: 'Importation annulée après l’enregistrement de {committed}/{total} entrées. Importez à nouveau le même fichier avec le même bouton pour terminer.',
-            importSummaryKeep: '{imported} importés ; {skipped} entrées existantes ignorées.',
-            importSummaryReplace: '{imported} importés ; {replaced} entrées existantes remplacées.',
-            importFailed: 'Échec de l’importation : {error}',
-            invalidBackup: 'Ce fichier n’est pas une sauvegarde BunPro Local Audio Override valide.',
-            unsupportedBackupVersion: 'Version de sauvegarde non prise en charge : {version}',
-            backupEntryTooLarge: 'Un extrait audio de la sauvegarde dépasse 50 Mo.',
-            backupChecksumMismatch: 'Somme de contrôle incorrecte pour : {sentence}',
-            chooseBackupFile: 'Choisir une sauvegarde BunPro Local Audio Override',
-            cleanWarning: 'Cliquez de nouveau sur le bouton de confirmation pour tout supprimer.',
-            cleaning: 'Suppression de tous les audios personnalisés…',
-            cleaned: '{count} audios personnalisés supprimés.',
-            databaseError: 'Échec de l’opération de base de données : {error}',
-        },
-        ja: {
+            // Recording gain
+            micGainLabel: '録音ゲイン',
+            micGainTitle: '次の P 録音から声を増幅します。1× は元の音量、小声ならまず 2× をお試しください。設定は保存されます。お手本や録音済み音声は変わりません。背景ノイズも大きくなります。',
+            micGainUnavailable: '録音ゲインを開始できません。お手本の再生は続きます。Rec をオフ・オンにして P で再試行してください。1× ではゲインなしで録音できます。',
+
+            // Microphone recovery
+            micUnavailable: 'マイクを利用できません。お手本の再生は続きます。再接続か Rec のオフ・オンで再試行できます。',
+            micRetryWaiting: 'マイクエラーで録音を停止しました。{seconds} 秒後に P で再試行、または再接続か Rec のオフ・オンで今すぐ再試行できます。',
+            micRequestTimeout: 'マイクの要求がタイムアウトしました。お手本の再生には影響しません。',
+
+            // Admin
             admin: '管理',
             adminTitle: '音声データベース管理',
             adminHelp: '「インポート」は既存の文を残し、「インポートして置換」は上書きします。',
@@ -825,6 +1066,34 @@
             cleaning: 'カスタム音声をすべて削除しています…',
             cleaned: '{count} 件のカスタム音声を削除しました。',
             databaseError: 'データベース操作に失敗しました：{error}',
+
+            // Compression
+            compressAudio: '音声を圧縮',
+            cancelCompression: '圧縮をキャンセル',
+            autoCompressLabel: '新しい音声を自動圧縮',
+            autoCompressTitle: 'Save で保存する音声や .bpao バックアップから新たに取り込む音声を、モノラル Opus で非可逆圧縮します。既存ライブラリは変更しません。設定は保存されます。',
+            autoCompressionProgress: '新しい音声を自動圧縮中 {done}/{total}…',
+            autoCompressionSummary: '自動圧縮：圧縮 {changed}、スキップ {skipped}、失敗 {failed} · {saved} 削減。',
+            autoCompressionCancelled: 'キャンセルしました。音声は保存・インポートされていません。',
+            autoCompressionUnavailable: '自動圧縮を利用できません：{error}。元の音声を通常どおり保存またはインポートします。',
+            compressionConfirm: '保存済み音声を 64 kbps・モノラルの Opus に圧縮しますか？非可逆圧縮です。元の音質を残す場合は先にバックアップをエクスポートしてください。検証済みで小さくなった音声のみ置換します。無音で処理し、所要時間は音声の合計時間が目安です。タブを開いたままにしてください。途中でキャンセルできます。',
+            compressionStarting: '圧縮を準備中…',
+            compressionProgress: '圧縮中 {done}/{total} · {saved} 削減 · 圧縮 {changed}、スキップ {skipped}、失敗 {failed}',
+            compressionComplete: '完了：圧縮 {changed}、スキップ {skipped}、失敗 {failed} · {saved} 削減。',
+            compressionCancelled: 'キャンセル：圧縮 {changed}、スキップ {skipped}、失敗 {failed} · {saved} 削減。完了分は保存されました。',
+            compressionCancelling: 'キャンセル中…',
+            compressionFailed: '圧縮停止：{error}。完了分は保存され、未処理の音声は変更されていません。',
+            compressionAbort: '音声圧縮をキャンセルしました。',
+            compressionRecorderUnavailable: 'このブラウザーは MediaRecorder で Opus 音声をエンコードできません。',
+            compressionEncoderUnavailable: 'このブラウザーには対応する Ogg/WebM Opus エンコーダーがありません。',
+            compressionContextUnavailable: '音声圧縮用のコンテキストを利用できません。',
+            compressionNoSamples: '元の音声にデコード可能なサンプルがありません。',
+            compressionSuspended: '音声処理が一時停止しています。このタブをアクティブにして再試行してください。',
+            compressionEncoderFailed: 'Opus エンコーダーでエラーが発生しました。',
+            compressionStoppedEarly: '音声のエンコードがクリップの終了前に停止しました。',
+            compressionTimedOut: '音声のエンコードがタイムアウトしました。このタブをアクティブにして再試行してください。',
+            compressionEmptyClip: 'Opus エンコーダーが空のクリップを生成しました。',
+            compressionValidationFailed: 'エンコード後の音声の長さまたはチャンネル数の検証に失敗しました。元の音声は保持されています。',
         },
     });
 
@@ -885,7 +1154,7 @@
         recordingPlaybackGeneration: 0,
         recordingPlaybackLastError: '',
 
-        // 3.6：共享麦克风流。整页只开一次设备，录音会话之间复用。
+        // Reuse one microphone stream across takes to avoid device routing stalls.
         micStream: null,
         micStreamPromise: null,
         micRequest: null,
@@ -894,21 +1163,23 @@
         micStreamKey: '',
         micIdleTimer: 0,
 
-        // 3.6：页面短暂不合格时的宽限起点，避免播放被切题误判打断。
+        // Track transient ineligibility so a React update does not interrupt playback.
         ineligibleSince: 0,
 
         pHotkeyGeneration: 0,
         pPlaybackStartPending: false,
-        pRouteOwner: '',
-        nativePIntentActive: false,
-        nativePIntentStartedAt: 0,
-        nativePStopGuardUntil: 0,
-        nativePClickPassthroughGeneration: 0,
-        nativePClickPassthroughTimer: 0,
+        pRoute: {
+            owner: '',
+            intentActive: false,
+            intentStartedAt: 0,
+            stopGuardUntil: 0,
+            clickPassthroughGeneration: 0,
+            clickPassthroughTimer: 0,
+        },
         panelPositionScheduled: false,
         syntheticPlayButton: null,
 
-        // 本地播放器状态。播放器尽量直接接管 BunPro 原有 DOM；没有原生 DOM 时再创建同款结构。
+        // Reuse BunPro's player DOM where available; create a matching fallback otherwise.
         playerOpen: false,
         playerWrapper: null,
         playerWrapperIsNative: false,
@@ -1018,210 +1289,10 @@
         return setting === 'auto' ? detectAutomaticLanguage() : setting;
     }
 
-    const COMPRESSION_I18N = Object.freeze({
-        en: {
-            compressAudio: 'Compress Audio', cancelCompression: 'Cancel Compression',
-            autoCompressLabel: 'Auto-compress new audio',
-            autoCompressTitle: 'Use lossy mono Opus compression for new audio saved with Save or imported from .bpao backups. Existing library audio is not changed. Your choice is remembered.',
-            autoCompressionProgress: 'Auto-compressing new audio {done}/{total}…',
-            autoCompressionSummary: 'Auto-compression: {changed} converted, {skipped} skipped, {failed} failed · saved {saved}.',
-            autoCompressionCancelled: 'Cancelled. No audio was saved or imported.',
-            autoCompressionUnavailable: 'Auto-compression unavailable: {error}. Original audio will be saved or imported normally.',
-            compressionConfirm: 'Compress all saved audio to mono Opus at 64 kbps? This is lossy and cannot restore the original quality. Export a backup first if you want to keep originals. Only smaller, verified clips replace originals. Encoding is silent and takes roughly the total audio duration. Keep this tab open; you can cancel at any time.',
-            compressionStarting: 'Preparing compression…',
-            compressionProgress: 'Compressing {done}/{total} · saved {saved} · converted {changed}, skipped {skipped}, failed {failed}',
-            compressionComplete: 'Compression complete: {changed} converted, {skipped} skipped, {failed} failed · saved {saved}.',
-            compressionCancelled: 'Compression cancelled: {changed} converted, {skipped} skipped, {failed} failed · saved {saved}. Completed changes were kept.',
-            compressionCancelling: 'Cancelling compression…',
-            compressionFailed: 'Compression stopped: {error}. Completed changes were kept; unprocessed clips are unchanged.',
-            compressionAbort: 'Audio compression cancelled.',
-            compressionRecorderUnavailable: 'This browser cannot encode Opus audio with MediaRecorder.',
-            compressionEncoderUnavailable: 'This browser has no supported Ogg/WebM Opus encoder.',
-            compressionContextUnavailable: 'The audio compression context is unavailable.',
-            compressionNoSamples: 'The source audio has no decodable samples.',
-            compressionSuspended: 'Audio processing is suspended. Keep this tab active and try again.',
-            compressionEncoderFailed: 'The Opus encoder failed.',
-            compressionStoppedEarly: 'Audio encoding stopped before the clip finished.',
-            compressionTimedOut: 'Audio encoding timed out. Keep this tab active and try again.',
-            compressionEmptyClip: 'The Opus encoder produced an empty clip.',
-            compressionValidationFailed: 'Encoded audio failed duration/channel validation; the original was kept.',
-        },
-        'zh-CN': {
-            compressAudio: '压缩音频', cancelCompression: '取消压缩',
-            autoCompressLabel: '自动压缩新音频',
-            autoCompressTitle: '对点击 Save 保存或从 .bpao 备份导入的新音频进行单声道 Opus 有损压缩；不会改动现有音频库。此设置会被记住。',
-            autoCompressionProgress: '正在自动压缩新音频 {done}/{total}……',
-            autoCompressionSummary: '自动压缩：已压缩 {changed}，跳过 {skipped}，失败 {failed} · 节省 {saved}。',
-            autoCompressionCancelled: '已取消，未保存或导入任何音频。',
-            autoCompressionUnavailable: '自动压缩不可用：{error}。原音频将照常保存或导入。',
-            compressionConfirm: '将全部已保存音频压缩为 64 kbps 单声道 Opus？这是有损压缩，不能恢复原始音质；如需保留原版，请先导出备份。仅用更小且验证通过的音频替换原音频。过程静音，耗时约为音频总时长。请保持标签页打开，可随时取消。',
-            compressionStarting: '正在准备压缩……',
-            compressionProgress: '正在压缩 {done}/{total} · 节省 {saved} · 已压缩 {changed}，跳过 {skipped}，失败 {failed}',
-            compressionComplete: '压缩完成：已压缩 {changed}，跳过 {skipped}，失败 {failed} · 节省 {saved}。',
-            compressionCancelled: '已取消：已压缩 {changed}，跳过 {skipped}，失败 {failed} · 节省 {saved}。已完成的压缩已保留。',
-            compressionCancelling: '正在取消压缩……',
-            compressionFailed: '压缩已停止：{error}。已完成的压缩已保留；未处理的音频不变。',
-            compressionAbort: '音频压缩已取消。',
-            compressionRecorderUnavailable: '当前浏览器无法使用 MediaRecorder 编码 Opus 音频。',
-            compressionEncoderUnavailable: '当前浏览器没有可用的 Ogg/WebM Opus 编码器。',
-            compressionContextUnavailable: '音频压缩环境不可用。',
-            compressionNoSamples: '原音频没有可解码的采样。',
-            compressionSuspended: '音频处理已暂停。请保持此标签页处于活动状态后重试。',
-            compressionEncoderFailed: 'Opus 编码器出错。',
-            compressionStoppedEarly: '音频编码在片段结束前停止。',
-            compressionTimedOut: '音频编码超时。请保持此标签页处于活动状态后重试。',
-            compressionEmptyClip: 'Opus 编码器生成了空音频。',
-            compressionValidationFailed: '编码后音频的时长或声道验证失败；已保留原音频。',
-        },
-        'zh-TW': {
-            compressAudio: '壓縮音訊', cancelCompression: '取消壓縮',
-            autoCompressLabel: '自動壓縮新音訊',
-            autoCompressTitle: '對按下 Save 儲存或從 .bpao 備份匯入的新音訊進行單聲道 Opus 有損壓縮；不會改動現有音訊庫。此設定會被記住。',
-            autoCompressionProgress: '正在自動壓縮新音訊 {done}/{total}……',
-            autoCompressionSummary: '自動壓縮：已壓縮 {changed}，略過 {skipped}，失敗 {failed} · 節省 {saved}。',
-            autoCompressionCancelled: '已取消，未儲存或匯入任何音訊。',
-            autoCompressionUnavailable: '自動壓縮無法使用：{error}。原音訊將照常儲存或匯入。',
-            compressionConfirm: '將全部已儲存音訊壓縮為 64 kbps 單聲道 Opus？這是有損壓縮，不能恢復原始音質；如需保留原版，請先匯出備份。僅以更小且驗證通過的音訊取代原音訊。過程靜音，耗時約為音訊總時長。請保持分頁開啟，可隨時取消。',
-            compressionStarting: '正在準備壓縮……',
-            compressionProgress: '正在壓縮 {done}/{total} · 節省 {saved} · 已壓縮 {changed}，略過 {skipped}，失敗 {failed}',
-            compressionComplete: '壓縮完成：已壓縮 {changed}，略過 {skipped}，失敗 {failed} · 節省 {saved}。',
-            compressionCancelled: '已取消：已壓縮 {changed}，略過 {skipped}，失敗 {failed} · 節省 {saved}。已完成的壓縮已保留。',
-            compressionCancelling: '正在取消壓縮……',
-            compressionFailed: '壓縮已停止：{error}。已完成的壓縮已保留；未處理的音訊不變。',
-            compressionAbort: '音訊壓縮已取消。',
-            compressionRecorderUnavailable: '目前瀏覽器無法使用 MediaRecorder 編碼 Opus 音訊。',
-            compressionEncoderUnavailable: '目前瀏覽器沒有可用的 Ogg/WebM Opus 編碼器。',
-            compressionContextUnavailable: '音訊壓縮環境無法使用。',
-            compressionNoSamples: '原音訊沒有可解碼的取樣。',
-            compressionSuspended: '音訊處理已暫停。請保持此分頁處於使用中狀態後重試。',
-            compressionEncoderFailed: 'Opus 編碼器發生錯誤。',
-            compressionStoppedEarly: '音訊編碼在片段結束前停止。',
-            compressionTimedOut: '音訊編碼逾時。請保持此分頁處於使用中狀態後重試。',
-            compressionEmptyClip: 'Opus 編碼器產生了空音訊。',
-            compressionValidationFailed: '編碼後音訊的時長或聲道驗證失敗；已保留原音訊。',
-        },
-        ja: {
-            compressAudio: '音声を圧縮', cancelCompression: '圧縮をキャンセル',
-            autoCompressLabel: '新しい音声を自動圧縮',
-            autoCompressTitle: 'Save で保存する音声や .bpao バックアップから新たに取り込む音声を、モノラル Opus で非可逆圧縮します。既存ライブラリは変更しません。設定は保存されます。',
-            autoCompressionProgress: '新しい音声を自動圧縮中 {done}/{total}…',
-            autoCompressionSummary: '自動圧縮：圧縮 {changed}、スキップ {skipped}、失敗 {failed} · {saved} 削減。',
-            autoCompressionCancelled: 'キャンセルしました。音声は保存・インポートされていません。',
-            autoCompressionUnavailable: '自動圧縮を利用できません：{error}。元の音声を通常どおり保存またはインポートします。',
-            compressionConfirm: '保存済み音声を 64 kbps・モノラルの Opus に圧縮しますか？非可逆圧縮です。元の音質を残す場合は先にバックアップをエクスポートしてください。検証済みで小さくなった音声のみ置換します。無音で処理し、所要時間は音声の合計時間が目安です。タブを開いたままにしてください。途中でキャンセルできます。',
-            compressionStarting: '圧縮を準備中…',
-            compressionProgress: '圧縮中 {done}/{total} · {saved} 削減 · 圧縮 {changed}、スキップ {skipped}、失敗 {failed}',
-            compressionComplete: '完了：圧縮 {changed}、スキップ {skipped}、失敗 {failed} · {saved} 削減。',
-            compressionCancelled: 'キャンセル：圧縮 {changed}、スキップ {skipped}、失敗 {failed} · {saved} 削減。完了分は保存されました。',
-            compressionCancelling: 'キャンセル中…',
-            compressionFailed: '圧縮停止：{error}。完了分は保存され、未処理の音声は変更されていません。',
-            compressionAbort: '音声圧縮をキャンセルしました。',
-            compressionRecorderUnavailable: 'このブラウザーは MediaRecorder で Opus 音声をエンコードできません。',
-            compressionEncoderUnavailable: 'このブラウザーには対応する Ogg/WebM Opus エンコーダーがありません。',
-            compressionContextUnavailable: '音声圧縮用のコンテキストを利用できません。',
-            compressionNoSamples: '元の音声にデコード可能なサンプルがありません。',
-            compressionSuspended: '音声処理が一時停止しています。このタブをアクティブにして再試行してください。',
-            compressionEncoderFailed: 'Opus エンコーダーでエラーが発生しました。',
-            compressionStoppedEarly: '音声のエンコードがクリップの終了前に停止しました。',
-            compressionTimedOut: '音声のエンコードがタイムアウトしました。このタブをアクティブにして再試行してください。',
-            compressionEmptyClip: 'Opus エンコーダーが空のクリップを生成しました。',
-            compressionValidationFailed: 'エンコード後の音声の長さまたはチャンネル数の検証に失敗しました。元の音声は保持されています。',
-        },
-        es: {
-            compressAudio: 'Comprimir audio', cancelCompression: 'Cancelar compresión',
-            autoCompressLabel: 'Comprimir automáticamente los nuevos audios',
-            autoCompressTitle: 'Comprime con pérdida en Opus mono los nuevos audios guardados con Save o importados desde copias .bpao. No modifica la biblioteca existente. Se recuerda tu elección.',
-            autoCompressionProgress: 'Comprimiendo automáticamente los nuevos audios {done}/{total}…',
-            autoCompressionSummary: 'Compresión automática: {changed} convertidos, {skipped} omitidos, {failed} fallidos · ahorro {saved}.',
-            autoCompressionCancelled: 'Cancelado. No se guardó ni importó ningún audio.',
-            autoCompressionUnavailable: 'Compresión automática no disponible: {error}. Los audios originales se guardarán o importarán normalmente.',
-            compressionConfirm: '¿Comprimir los audios guardados a Opus mono de 64 kbps? Es una compresión con pérdida. Exporta una copia para conservar los originales. Solo se reemplazan los clips verificados y más pequeños. El proceso es silencioso y tarda aproximadamente la duración total del audio. Mantén la pestaña abierta; puedes cancelar.',
-            compressionStarting: 'Preparando compresión…',
-            compressionProgress: 'Comprimiendo {done}/{total} · ahorro {saved} · convertidos {changed}, omitidos {skipped}, fallidos {failed}',
-            compressionComplete: 'Completado: {changed} convertidos, {skipped} omitidos, {failed} fallidos · ahorro {saved}.',
-            compressionCancelled: 'Cancelado: {changed} convertidos, {skipped} omitidos, {failed} fallidos · ahorro {saved}. Se conservan los cambios completados.',
-            compressionCancelling: 'Cancelando…',
-            compressionFailed: 'Compresión detenida: {error}. Se conservan los cambios completados; los demás clips no cambian.',
-            compressionAbort: 'Se canceló la compresión de audio.',
-            compressionRecorderUnavailable: 'Este navegador no puede codificar audio Opus con MediaRecorder.',
-            compressionEncoderUnavailable: 'Este navegador no tiene un codificador Ogg/WebM Opus compatible.',
-            compressionContextUnavailable: 'El contexto de compresión de audio no está disponible.',
-            compressionNoSamples: 'El audio original no tiene muestras decodificables.',
-            compressionSuspended: 'El procesamiento de audio está suspendido. Mantén esta pestaña activa e inténtalo de nuevo.',
-            compressionEncoderFailed: 'El codificador Opus falló.',
-            compressionStoppedEarly: 'La codificación de audio se detuvo antes de que terminara el clip.',
-            compressionTimedOut: 'La codificación de audio agotó el tiempo de espera. Mantén esta pestaña activa e inténtalo de nuevo.',
-            compressionEmptyClip: 'El codificador Opus produjo un clip vacío.',
-            compressionValidationFailed: 'El audio codificado no superó la validación de duración o canales; se conservó el original.',
-        },
-        id: {
-            compressAudio: 'Kompres Audio', cancelCompression: 'Batalkan Kompresi',
-            autoCompressLabel: 'Kompres otomatis audio baru',
-            autoCompressTitle: 'Gunakan kompresi lossy Opus mono untuk audio baru yang disimpan dengan Save atau diimpor dari cadangan .bpao. Audio di pustaka yang sudah ada tidak diubah. Pilihan Anda akan diingat.',
-            autoCompressionProgress: 'Mengompres otomatis audio baru {done}/{total}…',
-            autoCompressionSummary: 'Kompresi otomatis: {changed} dikonversi, {skipped} dilewati, {failed} gagal · hemat {saved}.',
-            autoCompressionCancelled: 'Dibatalkan. Tidak ada audio yang disimpan atau diimpor.',
-            autoCompressionUnavailable: 'Kompresi otomatis tidak tersedia: {error}. Audio asli akan disimpan atau diimpor seperti biasa.',
-            compressionConfirm: 'Kompres audio tersimpan ke Opus mono 64 kbps? Kompresi ini lossy. Ekspor cadangan untuk menyimpan kualitas asli. Hanya klip terverifikasi dan lebih kecil yang menggantikan aslinya. Proses senyap dan memerlukan sekitar total durasi audio. Biarkan tab terbuka; Anda dapat membatalkan.',
-            compressionStarting: 'Menyiapkan kompresi…',
-            compressionProgress: 'Mengompres {done}/{total} · hemat {saved} · dikonversi {changed}, dilewati {skipped}, gagal {failed}',
-            compressionComplete: 'Selesai: {changed} dikonversi, {skipped} dilewati, {failed} gagal · hemat {saved}.',
-            compressionCancelled: 'Dibatalkan: {changed} dikonversi, {skipped} dilewati, {failed} gagal · hemat {saved}. Perubahan selesai disimpan.',
-            compressionCancelling: 'Membatalkan…',
-            compressionFailed: 'Kompresi berhenti: {error}. Perubahan selesai disimpan; klip lainnya tidak berubah.',
-            compressionAbort: 'Kompresi audio dibatalkan.',
-            compressionRecorderUnavailable: 'Browser ini tidak dapat mengodekan audio Opus dengan MediaRecorder.',
-            compressionEncoderUnavailable: 'Browser ini tidak memiliki encoder Ogg/WebM Opus yang didukung.',
-            compressionContextUnavailable: 'Konteks kompresi audio tidak tersedia.',
-            compressionNoSamples: 'Audio sumber tidak memiliki sampel yang dapat didekodekan.',
-            compressionSuspended: 'Pemrosesan audio ditangguhkan. Biarkan tab ini aktif dan coba lagi.',
-            compressionEncoderFailed: 'Encoder Opus gagal.',
-            compressionStoppedEarly: 'Pengodean audio berhenti sebelum klip selesai.',
-            compressionTimedOut: 'Pengodean audio melewati batas waktu. Biarkan tab ini aktif dan coba lagi.',
-            compressionEmptyClip: 'Encoder Opus menghasilkan klip kosong.',
-            compressionValidationFailed: 'Audio hasil pengodean gagal dalam validasi durasi atau kanal; audio asli dipertahankan.',
-        },
-        fr: {
-            compressAudio: 'Compresser les audios', cancelCompression: 'Annuler la compression',
-            autoCompressLabel: 'Compresser automatiquement les nouveaux audios',
-            autoCompressTitle: 'Compresse avec perte en Opus mono les nouveaux audios enregistrés avec Save ou importés depuis une sauvegarde .bpao. La bibliothèque existante reste inchangée. Votre choix est mémorisé.',
-            autoCompressionProgress: 'Compression automatique des nouveaux audios {done}/{total}…',
-            autoCompressionSummary: 'Compression automatique : {changed} convertis, {skipped} ignorés, {failed} échecs · gain {saved}.',
-            autoCompressionCancelled: 'Annulé. Aucun audio n’a été enregistré ni importé.',
-            autoCompressionUnavailable: 'Compression automatique indisponible : {error}. Les audios originaux seront enregistrés ou importés normalement.',
-            compressionConfirm: 'Compresser les audios enregistrés en Opus mono à 64 kbps ? Cette compression est avec perte. Exportez une sauvegarde pour conserver les originaux. Seuls les clips vérifiés et plus petits les remplacent. Le traitement est silencieux et dure environ la durée totale des audios. Gardez cet onglet ouvert ; vous pouvez annuler.',
-            compressionStarting: 'Préparation de la compression…',
-            compressionProgress: 'Compression {done}/{total} · gain {saved} · convertis {changed}, ignorés {skipped}, échecs {failed}',
-            compressionComplete: 'Terminé : {changed} convertis, {skipped} ignorés, {failed} échecs · gain {saved}.',
-            compressionCancelled: 'Annulé : {changed} convertis, {skipped} ignorés, {failed} échecs · gain {saved}. Les changements terminés sont conservés.',
-            compressionCancelling: 'Annulation…',
-            compressionFailed: 'Compression arrêtée : {error}. Les changements terminés sont conservés ; les autres clips restent inchangés.',
-            compressionAbort: 'La compression audio a été annulée.',
-            compressionRecorderUnavailable: 'Ce navigateur ne peut pas encoder l’audio Opus avec MediaRecorder.',
-            compressionEncoderUnavailable: 'Ce navigateur ne dispose d’aucun encodeur Ogg/WebM Opus compatible.',
-            compressionContextUnavailable: 'Le contexte de compression audio est indisponible.',
-            compressionNoSamples: 'L’audio source ne contient aucun échantillon décodable.',
-            compressionSuspended: 'Le traitement audio est suspendu. Gardez cet onglet actif et réessayez.',
-            compressionEncoderFailed: 'L’encodeur Opus a échoué.',
-            compressionStoppedEarly: 'L’encodage audio s’est arrêté avant la fin du clip.',
-            compressionTimedOut: 'Le délai d’encodage audio a expiré. Gardez cet onglet actif et réessayez.',
-            compressionEmptyClip: 'L’encodeur Opus a produit un clip vide.',
-            compressionValidationFailed: 'La validation de la durée ou des canaux de l’audio encodé a échoué ; l’original a été conservé.',
-        },
-    });
-
     function t(key, variables = {}) {
         const language = getResolvedUiLanguage();
         const template = I18N[language]?.[key]
-            ?? RECORDING_GAIN_I18N[language]?.[key]
-            ?? MIC_RECOVERY_I18N[language]?.[key]
-            ?? ADMIN_I18N[language]?.[key]
-            ?? COMPRESSION_I18N[language]?.[key]
             ?? I18N.en[key]
-            ?? RECORDING_GAIN_I18N.en[key]
-            ?? MIC_RECOVERY_I18N.en[key]
-            ?? ADMIN_I18N.en[key]
-            ?? COMPRESSION_I18N.en[key]
             ?? key;
         return String(template).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) =>
             Object.prototype.hasOwnProperty.call(variables, name) ? String(variables[name]) : match
@@ -1274,30 +1345,7 @@
         renderPanel();
     }
 
-    // 'raw'   —— 关闭 AEC/降噪/AGC。Chrome 不会把输出重路由到回声消除渲染流，
-    //            这正是 3.6 修掉“按 P 播放不到一秒就卡死”的关键。
-    // 'clean' —— 保留 3.5 的行为，代价是部分设备上会卡播放。
-    const MIC_RECOVERY_I18N = Object.freeze({
-        en: { micUnavailable: 'Microphone unavailable. Reference playback continues. Reconnect the device or switch Rec off/on to retry.', micRetryWaiting: 'Recording paused after a microphone error. Next P can retry in {seconds}s; reconnect the device or switch Rec off/on to retry now.', micRequestTimeout: 'Microphone request timed out; reference playback is unaffected.' },
-        'zh-CN': { micUnavailable: '麦克风暂不可用，参考音频继续播放。重新连接设备或关闭再开启 Rec 后可重试。', micRetryWaiting: '麦克风异常，已暂缓录音。{seconds} 秒后按 P 可重试；重新连接设备或关闭再开启 Rec 可立即重试。', micRequestTimeout: '请求麦克风超时，不影响参考音频播放。' },
-        'zh-TW': { micUnavailable: '麥克風暫不可用，參考音訊繼續播放。重新連接裝置或關閉再開啟 Rec 後可重試。', micRetryWaiting: '麥克風異常，已暫緩錄音。{seconds} 秒後按 P 可重試；重新連接裝置或關閉再開啟 Rec 可立即重試。', micRequestTimeout: '請求麥克風逾時，不影響參考音訊播放。' },
-        ja: { micUnavailable: 'マイクを利用できません。お手本の再生は続きます。再接続か Rec のオフ・オンで再試行できます。', micRetryWaiting: 'マイクエラーで録音を停止しました。{seconds} 秒後に P で再試行、または再接続か Rec のオフ・オンで今すぐ再試行できます。', micRequestTimeout: 'マイクの要求がタイムアウトしました。お手本の再生には影響しません。' },
-        es: { micUnavailable: 'Micrófono no disponible. La referencia continúa. Reconecta el dispositivo o desactiva y activa Rec para reintentar.', micRetryWaiting: 'Grabación en pausa por un error. Pulsa P en {seconds}s, o reconecta el dispositivo o desactiva y activa Rec.', micRequestTimeout: 'La solicitud del micrófono agotó el tiempo de espera; la referencia no se ve afectada.' },
-        id: { micUnavailable: 'Mikrofon tidak tersedia. Audio referensi tetap diputar. Sambungkan perangkat atau matikan dan aktifkan Rec untuk mencoba lagi.', micRetryWaiting: 'Rekaman dijeda karena galat. Tekan P setelah {seconds} detik, atau sambungkan perangkat atau matikan dan aktifkan Rec.', micRequestTimeout: 'Permintaan mikrofon kehabisan waktu; audio referensi tidak terpengaruh.' },
-        fr: { micUnavailable: 'Microphone indisponible. La référence continue. Reconnectez le périphérique ou désactivez puis réactivez Rec.', micRetryWaiting: 'Enregistrement suspendu après une erreur. Appuyez sur P dans {seconds}s, ou reconnectez le périphérique ou désactivez puis réactivez Rec.', micRequestTimeout: 'La demande de microphone a expiré ; la référence reste inchangée.' },
-    });
-
     const RECORDING_GAIN_LEVELS = Object.freeze([1, 1.5, 2, 3, 4]);
-    const RECORDING_GAIN_I18N = Object.freeze({
-        en: { micGainLabel: 'Mic gain', micGainTitle: 'Boost your voice in the next P recording. 1× = original; try 2× for a quiet voice. Saved automatically. Does not change reference audio or an existing take; higher gain also boosts background noise.', micGainUnavailable: 'Microphone gain could not start. Reference playback continues. Switch Rec off/on to retry; choose 1× to record without gain.' },
-        'zh-CN': { micGainLabel: '录音增益', micGainTitle: '从下一次 P 录音起放大人声。1× 为原音量，轻声说话可先试 2×。自动记住选择，不影响参考音频或已录好的内容；增益也会放大背景噪声。', micGainUnavailable: '录音增益无法启动，不影响参考音频。关闭再开启 Rec 后按 P 重试；可选 1× 使用原音量录音。' },
-        'zh-TW': { micGainLabel: '錄音增益', micGainTitle: '從下一次 P 錄音起放大人聲。1× 為原音量，輕聲說話可先試 2×。自動記住選擇，不影響參考音訊或已錄好的內容；增益也會放大背景噪音。', micGainUnavailable: '錄音增益無法啟動，不影響參考音訊。關閉再開啟 Rec 後按 P 重試；可選 1× 使用原音量錄音。' },
-        ja: { micGainLabel: '録音ゲイン', micGainTitle: '次の P 録音から声を増幅します。1× は元の音量、小声ならまず 2× をお試しください。設定は保存されます。お手本や録音済み音声は変わりません。背景ノイズも大きくなります。', micGainUnavailable: '録音ゲインを開始できません。お手本の再生は続きます。Rec をオフ・オンにして P で再試行してください。1× ではゲインなしで録音できます。' },
-        es: { micGainLabel: 'Ganancia mic.', micGainTitle: 'Amplifica tu voz en la próxima grabación con P. 1× conserva el volumen original; prueba 2× si hablas bajo. Se guarda la opción. No cambia el audio de referencia ni las tomas anteriores; también amplifica el ruido.', micGainUnavailable: 'No se pudo iniciar la ganancia. La referencia continúa. Desactiva y activa Rec, y pulsa P para reintentar; usa 1× para grabar sin ganancia.' },
-        id: { micGainLabel: 'Gain mikrofon', micGainTitle: 'Perkuat suara mulai rekaman P berikutnya. 1× adalah volume asli; coba 2× untuk suara pelan. Pilihan disimpan. Audio referensi dan rekaman lama tidak berubah; kebisingan latar juga meningkat.', micGainUnavailable: 'Gain mikrofon tidak dapat dimulai. Referensi tetap diputar. Matikan dan aktifkan Rec lalu tekan P; pilih 1× untuk merekam tanpa gain.' },
-        fr: { micGainLabel: 'Gain micro', micGainTitle: 'Amplifie votre voix dès le prochain enregistrement avec P. 1× garde le volume original ; essayez 2× si vous parlez doucement. Le réglage est mémorisé. Aucun effet sur la référence ou les prises précédentes ; le bruit de fond augmente aussi.', micGainUnavailable: 'Impossible de démarrer le gain micro. La référence continue. Désactivez puis réactivez Rec et appuyez sur P ; choisissez 1× pour enregistrer sans gain.' },
-    });
-
     function getRecordingGain() {
         const value = Number(getSetting(STORAGE_KEYS.RECORDING_GAIN, 1));
         return RECORDING_GAIN_LEVELS.includes(value) ? value : 1;
@@ -1311,6 +1359,8 @@
         renderPanel();
     }
 
+    // Raw mode avoids Chrome's echo-cancellation output rerouting, which can
+    // stall playback on some devices; clean mode opts into browser processing.
     function getMicProcessingMode() {
         return getSetting(STORAGE_KEYS.MIC_PROCESSING, 'raw') === 'clean' ? 'clean' : 'raw';
     }
@@ -1319,7 +1369,7 @@
         const value = mode === 'clean' ? 'clean' : 'raw';
         if (value === getMicProcessingMode()) return;
         setSetting(STORAGE_KEYS.MIC_PROCESSING, value);
-        // 约束变了就必须重新取流，否则旧流仍带着旧的处理链。
+        // Reacquire the stream because existing tracks retain their processing constraints.
         releaseMicrophoneStream('mic-processing-changed');
         resetMicrophoneRetry();
         renderPanel();
@@ -1591,6 +1641,8 @@
         return translatedError('storageUnavailable', { error: detail });
     }
 
+    // Keep camelCase and snake_case aliases: older readers and migration tools
+    // accept either spelling in stored entries.
     function normalizeStoredEntry(record) {
         if (!record) return null;
         const fileName = String(record.fileName || record.file_name || record.file || 'audio');
@@ -2321,9 +2373,8 @@
     }
 
     function findQuizAnswerContainer() {
-        // BunPro removed the tour wrapper IDs in September 2026. Keep the old selector
-        // for older deployments, then use the stable quiz-console class from the new
-        // InputManual/InputFlashcard components.
+        // Support both the tour-wrapper layout and InputManual/InputFlashcard
+        // layouts that expose only the stable quiz-console class.
         return document.querySelector('#js-tour-quiz-answer') ||
             document.querySelector('#js-quiz .bp-quiz-console');
     }
@@ -2387,7 +2438,7 @@
         if (isDebugEnabled() && isLocalAudioPlaying()) {
             debug('stopLocalAudio while playing', reason || 'unspecified', {
                 currentTime: state.audio?.currentTime,
-                pRouteOwner: state.pRouteOwner,
+                pRoute: getPRouteOwner(),
                 eligible: state.eligible,
             });
         }
@@ -2399,7 +2450,7 @@
                 state.audio.pause();
                 state.audio.currentTime = 0;
             } catch {
-                // 忽略媒体关闭异常，避免影响题目切换。
+                // A media cleanup failure must not prevent switching questions.
             }
         }
         paintLocalPlayerProgress();
@@ -2434,9 +2485,7 @@
     function resetForSentence(sentence) {
         state.pHotkeyGeneration += 1;
         state.pPlaybackStartPending = false;
-        state.pRouteOwner = '';
-        clearNativePIntent();
-        state.nativePStopGuardUntil = 0;
+        releasePRoute({ resetNative: true });
         clearNativePClickPassthrough();
         void stopVoiceRecording({ discard: false });
         cancelRecordedAudioPlayback();
@@ -2516,10 +2565,9 @@
         return state.lookupPromise;
     }
 
-    // BunPro 在 React 重渲染、预取下一题、reveal 动画期间会短暂把
-    // data-meta-* 写成不合格状态。3.5 一看到不合格就 resetForSentence('')，
-    // 而那条路径会 stopLocalAudio()——正在播的音频就被拦腰砍断。
-    // 3.6 在有音频在播时给一个宽限期，只有持续不合格才真正拆掉。
+    // React rerenders, prefetch and reveal animations can briefly invalidate
+    // data-meta-*. Defer teardown during playback until ineligibility persists,
+    // because resetForSentence would otherwise stop the current audio.
     function shouldDeferIneligibleTeardown() {
         if (!isLocalAudioPlaying() && !state.pPlaybackStartPending) {
             state.ineligibleSince = 0;
@@ -2603,12 +2651,11 @@
         return objectUrl;
     }
 
-    // BunPro 现在把播放器音频放在 React ref 里的 `new Audio()`，元素从不进入
-    // DOM（见 Review 页 chunk 532 的 useAudioPlayer）。所以 querySelectorAll
-    // 找不到它，绑在 document 上的 ended/error 也永远不会触发——游离元素没有
-    // 父链可冒泡。3.6 起 hook play() 登记真正播过的元素；3.6.2 也 hook
-    // playbackRate setter，因为本地 Override 会拦截播放，BunPro 的 Audio 可能尚未
-    // 调用 play()，但 React 仍会先把账户的 75%/85% 等速度写到该游离元素上。
+    // BunPro keeps new Audio() elements in React refs outside the DOM, where
+    // document queries and event capture cannot reach them. Hook play() to track
+    // active media and playbackRate to observe settings before the first play:
+    // a local override can prevent BunPro's element from ever playing, even though
+    // React already assigned the account's speed (for example 75% or 85%).
     const trackedMediaElements = new Set();
 
     function isOwnMediaElement(media) {
@@ -2662,7 +2709,7 @@
                 try {
                     trackMediaElement(this);
                 } catch {
-                    // 追踪失败绝不能影响页面自身的播放。
+                    // Tracking failures must not interfere with BunPro's own playback.
                 }
                 return nativePlay.apply(this, args);
             };
@@ -2704,7 +2751,7 @@
     function collectCandidateMediaElements() {
         const candidates = new Set(document.querySelectorAll('audio, video'));
         trackedMediaElements.forEach((media) => {
-            // src 被清空的元素已经废弃了，顺手回收，避免集合无限增长。
+            // Drop abandoned detached elements with no source so tracking stays bounded.
             if (!media.isConnected && !media.currentSrc && !media.src) {
                 trackedMediaElements.delete(media);
                 return;
@@ -2715,9 +2762,9 @@
     }
 
     function pausePageMedia() {
-        // BunPro 的播放器把 isPlaying 保存在 React state 中。只对游离 Audio
-        // 调 pause() 会让媒体停下、进度归零，但按钮仍显示 PAUSE。先点击当前
-        // 可见的暂停按钮，让 BunPro 自己同步状态；随后仍逐个媒体兜底归零。
+        // Pausing detached media alone leaves BunPro's React isPlaying state and
+        // PAUSE icon stale. Click its visible pause button to synchronize that state,
+        // then reset each media element as a fallback.
         const nativePauseButton = (() => {
             const player = findVisibleBunproAudioPlayer();
             if (!player) return null;
@@ -2775,47 +2822,96 @@
         });
     }
 
+    function getPRouteOwner() {
+        return state.pRoute.owner;
+    }
+
+    function isLocalPRoute() {
+        return getPRouteOwner() === 'local';
+    }
+
+    function isNativePRoute() {
+        return getPRouteOwner().startsWith('native');
+    }
+
+    function isNativePStopRoute() {
+        return getPRouteOwner() === 'native-stopping';
+    }
+
+    function hasNativePClickPassthrough() {
+        return Boolean(state.pRoute.clickPassthroughGeneration);
+    }
+
+    /*
+     * P routes: idle ('') -> local for a ready override, or native for the real
+     * BunPro keydown; native -> native-stopping on the next P. Local includes
+     * pending preparation (pPlaybackStartPending); a second P, failed start or
+     * local ended releases it. O and sentence changes release all route state;
+     * deleting an override releases ownership. Native intent expires on terminal
+     * media events or after its grace period; stopping releases on click expiry.
+     * A loading lookup uses native for that press: taking over would require
+     * intercepting or delaying BunPro's real P keydown.
+     * The intent grace lets React's icon and real media settle in either order.
+     * The ended guard and captured action/timestamp protect a new intent from
+     * stale terminal events. The stop guard prevents still-playing media from
+     * restarting intent during stop-then-restart races, even after route release.
+     * Click passthrough lets BunPro's own follow-up click handle the same P.
+     */
+    function releasePRoute({ resetNative = false } = {}) {
+        state.pRoute.owner = '';
+        if (resetNative) {
+            clearNativePIntent();
+            state.pRoute.stopGuardUntil = 0;
+        }
+    }
+
+    function beginLocalPRoute() {
+        clearNativePClickPassthrough();
+        state.pRoute.stopGuardUntil = 0;
+        state.pRoute.owner = 'local';
+    }
+
     function clearNativePIntent() {
-        state.nativePIntentActive = false;
-        state.nativePIntentStartedAt = 0;
-        if (state.pRouteOwner === 'native') state.pRouteOwner = '';
+        state.pRoute.intentActive = false;
+        state.pRoute.intentStartedAt = 0;
+        if (getPRouteOwner() === 'native') releasePRoute();
     }
 
     function markNativePIntent() {
-        state.pRouteOwner = 'native';
-        state.nativePIntentActive = true;
-        state.nativePIntentStartedAt = performance.now();
-        state.nativePStopGuardUntil = 0;
+        state.pRoute.owner = 'native';
+        state.pRoute.intentActive = true;
+        state.pRoute.intentStartedAt = performance.now();
+        state.pRoute.stopGuardUntil = 0;
     }
 
     function markNativePStop() {
         clearNativePIntent();
-        state.pRouteOwner = 'native-stopping';
-        state.nativePStopGuardUntil = performance.now() + NATIVE_P_STOP_GUARD_MS;
+        state.pRoute.owner = 'native-stopping';
+        state.pRoute.stopGuardUntil = performance.now() + NATIVE_P_STOP_GUARD_MS;
     }
 
     function clearNativePClickPassthrough(generation = null) {
         if (
             generation !== null &&
-            state.nativePClickPassthroughGeneration !== generation
+            state.pRoute.clickPassthroughGeneration !== generation
         ) {
             return;
         }
-        if (state.nativePClickPassthroughTimer) {
-            window.clearTimeout(state.nativePClickPassthroughTimer);
+        if (state.pRoute.clickPassthroughTimer) {
+            window.clearTimeout(state.pRoute.clickPassthroughTimer);
         }
-        state.nativePClickPassthroughGeneration = 0;
-        state.nativePClickPassthroughTimer = 0;
+        state.pRoute.clickPassthroughGeneration = 0;
+        state.pRoute.clickPassthroughTimer = 0;
     }
 
     function armNativePClickPassthrough(generation) {
         clearNativePClickPassthrough();
-        state.nativePClickPassthroughGeneration = generation;
-        state.nativePClickPassthroughTimer = window.setTimeout(() => {
-            const releaseStoppingRoute = state.pRouteOwner === 'native-stopping';
+        state.pRoute.clickPassthroughGeneration = generation;
+        state.pRoute.clickPassthroughTimer = window.setTimeout(() => {
+            const releaseStoppingRoute = isNativePStopRoute();
             clearNativePClickPassthrough(generation);
             if (releaseStoppingRoute) {
-                state.pRouteOwner = '';
+                releasePRoute();
                 scheduleSync();
             }
         }, NATIVE_P_CLICK_PASSTHROUGH_MS);
@@ -2824,11 +2920,11 @@
     function isNativePIntentActive() {
         const nativeMediaActive = isPageMediaPlaying();
         const nativeUiActive = isNativeBunproAudioPlaying();
-        if (state.nativePIntentActive && state.pRouteOwner === 'native') {
+        if (state.pRoute.intentActive && getPRouteOwner() === 'native') {
             // During a native P cycle, the real media state and BunPro's React icon
             // may settle in either order. Keep accepting both while the intent is ours.
             if (nativeMediaActive || nativeUiActive) return true;
-            const age = performance.now() - state.nativePIntentStartedAt;
+            const age = performance.now() - state.pRoute.intentStartedAt;
             if (age <= NATIVE_P_INTENT_GRACE_MS) return true;
             clearNativePIntent();
             return false;
@@ -2839,8 +2935,8 @@
             // O finishes reviewing a recording, BunPro can leave that icon visible and
             // the next P would otherwise be misclassified as a stop-only press.
             nativeMediaActive &&
-            state.pRouteOwner !== 'local' &&
-            performance.now() >= state.nativePStopGuardUntil
+            !isLocalPRoute() &&
+            performance.now() >= state.pRoute.stopGuardUntil
         ) {
             markNativePIntent();
             return true;
@@ -2848,34 +2944,38 @@
         return false;
     }
 
-    function onBunproPageMediaStateChanged(event) {
-        if (!isBunproPageMediaElement(event.target)) return;
-        if (!['ended', 'error', 'abort', 'emptied'].includes(event.type)) return;
+    function expireNativePIntent() {
         const terminalGeneration = state.pHotkeyGeneration;
-        const terminalIntentStartedAt = state.nativePIntentStartedAt;
+        const terminalIntentStartedAt = state.pRoute.intentStartedAt;
         window.setTimeout(() => {
-            // capture 阶段 BunPro/React 的暂停图标可能还没刷新，下一 task 再确认。
-            // 只信真实媒体状态；旧 terminal 事件也不能清掉随后一次 P 的新 intent。
+            // Wait one task for media to settle; a React icon may still be stale.
+            // Only real media and the captured intent can authorize this release.
             if (state.pHotkeyGeneration !== terminalGeneration) return;
-            if (state.pRouteOwner === 'local') return;
+            if (isLocalPRoute()) return;
             if (
-                state.nativePIntentActive &&
-                state.nativePIntentStartedAt !== terminalIntentStartedAt
+                state.pRoute.intentActive &&
+                state.pRoute.intentStartedAt !== terminalIntentStartedAt
             ) {
                 return;
             }
             if (isPageMediaPlaying()) return;
             if (
-                state.nativePIntentActive &&
-                performance.now() - state.nativePIntentStartedAt < NATIVE_P_ENDED_GUARD_MS
+                state.pRoute.intentActive &&
+                performance.now() - state.pRoute.intentStartedAt < NATIVE_P_ENDED_GUARD_MS
             ) {
                 return;
             }
-            const nativeStopInProgress = state.pRouteOwner === 'native-stopping';
+            const nativeStopInProgress = isNativePStopRoute();
             clearNativePIntent();
-            if (!nativeStopInProgress) state.nativePStopGuardUntil = 0;
+            if (!nativeStopInProgress) state.pRoute.stopGuardUntil = 0;
             scheduleSync();
         }, 0);
+    }
+
+    function onBunproPageMediaStateChanged(event) {
+        if (!isBunproPageMediaElement(event.target)) return;
+        if (!['ended', 'error', 'abort', 'emptied'].includes(event.type)) return;
+        expireNativePIntent();
     }
 
     function stopMediaStream(stream) {
@@ -2883,22 +2983,15 @@
             try {
                 track.stop();
             } catch {
-                // 忽略已经结束的麦克风轨道。
+                // One failed track cleanup must not prevent releasing the remaining tracks.
             }
         });
     }
 
-    // ---------------------------------------------------------------------
-    // 共享麦克风流（3.6）
-    //
-    // 3.5 每按一次 P 都会 stop() 掉上一条流的轨道，再重新 getUserMedia()。
-    // 在 Chrome/Windows 上这会让音频服务反复在“普通渲染流”和“回声消除渲染流”
-    // 之间切换，正在播放的 <audio> 会在几百毫秒后卡死——本地 Override 和
-    // BunPro 原生音频都会中招，因为两条 P 路径都调用了 restartVoiceRecording()。
-    //
-    // 3.6 改为：整页只取一次流，录音会话之间复用；默认关闭 AEC/降噪/AGC，
-    // 让 Chrome 根本不进入回声消除渲染路径。
-    // ---------------------------------------------------------------------
+    // Sharing the microphone avoids repeated device opens that can switch
+    // Chrome/Windows between normal and echo-cancellation rendering paths,
+    // stalling both local and native reference audio. Raw constraints also keep
+    // AEC, noise suppression and AGC from activating that processing path.
 
     function getMicConstraints() {
         if (getMicProcessingMode() === 'clean') return { audio: true };
@@ -3307,7 +3400,7 @@
             const audio = new Audio();
             audio.preload = 'auto';
             audio.loop = true;
-            // WAV 本身是全静音；保持 unmuted，才能在严格策略下解锁后续有声回放。
+            // The WAV is silent; leave it unmuted to unlock later audible playback under strict autoplay policies.
             audio.muted = false;
             audio.volume = 1;
             audio.setAttribute('aria-hidden', 'true');
@@ -3356,7 +3449,7 @@
             audio.load();
             audio.remove();
         } catch {
-            // 忽略录音回放清理异常。
+            // A stale player cleanup failure must not prevent starting the next replay.
         }
     }
 
@@ -3376,7 +3469,7 @@
             try {
                 URL.revokeObjectURL(state.recordingObjectUrl);
             } catch {
-                // 忽略录音 Object URL 清理异常。
+                // A URL cleanup failure must not retain the stale recording in state.
             }
         }
         state.recordingObjectUrl = '';
@@ -3431,8 +3524,8 @@
                 session.maxDurationTimer = 0;
             }
 
-            // 3.6：绝不在这里 stop() 麦克风轨道。流是整页共享的，停掉它会让
-            // Chrome 切换音频渲染路径，把刚开始的播放弄卡。只做空闲回收计时。
+            // Keep shared microphone tracks alive between takes: stopping them can
+            // switch Chrome's render path and stall audio that has just started.
             if (session.ownsStream) stopMediaStream(session.stream);
             else scheduleMicIdleRelease();
             if (!session.discard && blob?.size) {
@@ -3450,11 +3543,11 @@
         } catch (error) {
             console.warn('[BunPro Local Audio] Recording cleanup:', error);
         } finally {
-            // UI/render 清理即使异常，也绝不能把后续 P 永久锁在未决 Promise 上。
+            // Always settle the stop Promise, even if UI cleanup fails, so later P presses cannot hang.
             try {
                 session.resolveStop(result);
             } catch {
-                // Promise resolver 正常不会抛错；保持收尾幂等。
+                // Keep finalization idempotent even if a stop callback throws.
             }
         }
     }
@@ -3478,7 +3571,7 @@
             try {
                 if (session.recorder.state !== 'inactive') session.recorder.stop();
             } catch {
-                // 丢弃旧录音时无需等待 MediaRecorder 的最终数据。
+                // Discarded takes do not need the recorder's final data before releasing the session.
             }
             completeRecordingSession(session, null);
             return session.stopPromise;
@@ -3489,7 +3582,7 @@
                 try {
                     session.recorder.requestData?.();
                 } catch {
-                    // stop() 仍会请求最后一批数据。
+                    // stop() still requests the final data if requestData() fails.
                 }
                 session.recorder.stop();
             } catch (error) {
@@ -3515,7 +3608,7 @@
         const generation = ++state.recordingGeneration;
         state.recordingStartPending = true;
         cancelRecordedAudioPlayback();
-        // 流已经在手上时不再显示“正在请求麦克风”，那是首次授权才有的状态。
+        // A reused stream needs no new permission request, so avoid showing the permission-wait status.
         showRecordingStatus(state.micStream ? 'recordingActive' : 'recordingStarting');
 
         await finalizeRecordingSession(true);
@@ -3566,7 +3659,7 @@
                 stream,
                 gainInput,
                 recordingGain,
-                // 共享流由 releaseMicrophoneStream() 统一回收，会话不拥有它。
+                // releaseMicrophoneStream() owns the shared stream; a take must not stop it.
                 ownsStream: false,
                 chunks,
                 mimeType,
@@ -3587,7 +3680,7 @@
                 try {
                     if (recorder.state !== 'inactive') recorder.stop();
                 } catch {
-                    // 下面的统一收尾会释放媒体轨道和 Promise。
+                    // The common finalizer below still releases session resources and settles its Promise.
                 }
                 completeRecordingSession(session, null);
             });
@@ -3674,8 +3767,8 @@
             }
         }
 
-        // 必须在 O 键的同步用户手势内调用 resume()。否则 Firefox 可能在
-        // MediaRecorder 异步 stop 事件之后，把录音回放当成自动播放并拦截。
+        // Resume synchronously within the O gesture: after MediaRecorder's async
+        // stop event, Firefox may treat replay as autoplay and block it.
         if (context.state === 'suspended') {
             void context.resume().catch(() => {});
         }
@@ -3688,7 +3781,7 @@
                 try {
                     silentSource.disconnect();
                 } catch {
-                    // 忽略一次性静音解锁节点的清理异常。
+                    // An unlock-node cleanup failure must not affect recording replay.
                 }
             };
             silentSource.start(0);
@@ -3723,7 +3816,7 @@
                 try {
                     source.disconnect();
                 } catch {
-                    // 忽略已经断开的回放节点。
+                    // The playback node may already be disconnected.
                 }
             };
             source.start(0);
@@ -3749,7 +3842,7 @@
                         new Promise((resolve) => window.setTimeout(resolve, 500)),
                     ]);
                 } catch {
-                    // 仍继续尝试实际录音；失败后还会回退到 Web Audio。
+                    // Failed silent priming need not block real playback; Web Audio remains a fallback.
                 }
                 recordingPlaybackPrimePromises.delete(audio);
             }
@@ -3796,8 +3889,8 @@
         pausePageMedia();
         showRecordingStatus('recordingPlaybackStarting');
 
-        // 本函数由 O 键同步调用。async 函数会在首个 await 前立即执行 audio.play()，
-        // 因而已有 Blob 时完全保留按键的瞬时用户激活。
+        // Calling this async player before its first await invokes audio.play()
+        // inside the O gesture, preserving transient activation for an existing Blob.
         const playbackAttempt = playRecordingWithAudioElement(
             recording,
             new Audio(),
@@ -3858,7 +3951,7 @@
             try {
                 if (session.recorder.state !== 'inactive') session.recorder.stop();
             } catch {
-                // 页面退出时无需等待 MediaRecorder 完成收尾。
+                // Page teardown cannot wait for the recorder's asynchronous final data.
             }
             completeRecordingSession(session, null);
         }
@@ -3906,7 +3999,7 @@
             state.audio.addEventListener('ratechange', refreshState);
             state.audio.addEventListener('timeupdate', paintLocalPlayerProgress);
             state.audio.addEventListener('ended', () => {
-                if (state.pRouteOwner === 'local') state.pRouteOwner = '';
+                if (isLocalPRoute()) releasePRoute();
                 stopPlayerAnimation();
                 refreshState();
             });
@@ -3985,7 +4078,7 @@
             try {
                 audio.currentTime = 0;
             } catch {
-                // 元数据尚未就绪时，浏览器会在开始播放后自然从 0 开始。
+                // Without ready metadata, playback will start naturally at zero.
             }
         }
         const speed = applyCurrentPlaybackRate(audio);
@@ -4135,9 +4228,9 @@
             }
         }
 
-        // New layout: the audio-player wrapper and .bp-quiz-console are direct siblings
-        // inside the centre column of the quiz footer. Looking only at direct children
-        // selects the outer wrapper whose hidden/visible class React toggles.
+        // The audio-player wrapper and .bp-quiz-console are direct siblings inside
+        // the quiz footer's centre column. Restricting the search to direct children
+        // selects the outer wrapper whose visibility React toggles.
         const answer = findQuizAnswerContainer();
         const siblings = answer?.parentElement ? [...answer.parentElement.children] : [];
         return siblings.find((element) =>
@@ -4299,7 +4392,7 @@
             state.lookupStatus === 'ready' &&
             state.overrideFound &&
             state.entry &&
-            !state.pRouteOwner.startsWith('native')
+            !isNativePRoute()
         );
         if (!active) {
             restoreControlledAnswerButton();
@@ -4632,7 +4725,7 @@
             state.lookupStatus === 'ready' &&
             state.overrideFound &&
             state.entry &&
-            !state.pRouteOwner.startsWith('native')
+            !isNativePRoute()
         );
         if (!active) return;
 
@@ -4825,7 +4918,7 @@
             state.lookupStatus === 'ready' &&
             state.overrideFound &&
             state.entry &&
-            !state.pRouteOwner.startsWith('native')
+            !isNativePRoute()
         );
         if (!active) {
             if (
@@ -4971,10 +5064,10 @@
             if (generation === state.pHotkeyGeneration) {
                 state.pPlaybackStartPending = false;
                 if (
-                    state.pRouteOwner === 'local' &&
+                    isLocalPRoute() &&
                     !isLocalAudioPlaying()
                 ) {
-                    state.pRouteOwner = '';
+                    releasePRoute();
                 }
             }
         }
@@ -5014,10 +5107,8 @@
             const pPlaybackWasPending = state.pPlaybackStartPending;
             state.pHotkeyGeneration += 1;
             state.pPlaybackStartPending = false;
-            clearNativePIntent();
-            state.nativePStopGuardUntil = 0;
+            releasePRoute({ resetNative: true });
             clearNativePClickPassthrough();
-            state.pRouteOwner = '';
             blockEvent(event);
             if (!hasRecordingActivity() && !pPlaybackWasPending) {
                 showRecordingStatus(isRecordingEnabled() ? 'recordingEmpty' : 'recordingDisabled');
@@ -5050,9 +5141,7 @@
         cancelRecordedAudioPlayback();
 
         if (localPlaybackWasActive || localPStartWasPending) {
-            state.pRouteOwner = '';
-            clearNativePIntent();
-            state.nativePStopGuardUntil = 0;
+            releasePRoute({ resetNative: true });
             blockEvent(event);
             void stopVoiceRecording({ discard: false });
             stopLocalAudio();
@@ -5064,7 +5153,7 @@
             armNativePClickPassthrough(generation);
             void stopVoiceRecording({ discard: false });
             schedulePanelPositionAfterAudioUiChange();
-            // BunPro 必须收到同一个、受信任的 P 事件，由它自行停止并归零。
+            // BunPro must receive this same trusted P to stop and reset its audio.
             return;
         }
 
@@ -5075,9 +5164,7 @@
         );
         if (canStartVoiceRecording() && getRecordingGain() > 1) primeRecordingCaptureContext();
         if (useLocalOverride) {
-            clearNativePClickPassthrough();
-            state.nativePStopGuardUntil = 0;
-            state.pRouteOwner = 'local';
+            beginLocalPRoute();
             blockEvent(event);
             state.pPlaybackStartPending = true;
             const sentenceAtPress = state.normalizedSentence;
@@ -5085,8 +5172,8 @@
             return;
         }
 
-        // 原音路径只做录音 sidecar。不要拦截、延迟或程序化重放 P；
-        // BunPro 始终直接收到用户本次真实的键盘事件。
+        // Recording is only a sidecar: BunPro needs the user's original keydown
+        // directly, without interception, delay or a synthetic replacement.
         markNativePIntent();
         armNativePClickPassthrough(generation);
         void restartVoiceRecording();
@@ -5111,7 +5198,7 @@
         if (state.bypassClick) return;
         const button = event.target?.closest?.('button');
         if (
-            state.nativePClickPassthroughGeneration &&
+            hasNativePClickPassthrough() &&
             isNativeAudioControl(button)
         ) {
             return;
@@ -5185,7 +5272,7 @@
         try {
             button.setPointerCapture?.(event.pointerId);
         } catch {
-            // 某些浏览器在捕获阶段不允许立即设置 pointer capture。
+            // Some browsers reject pointer capture during the capturing phase.
         }
         setLocalAudioPositionFromClientX(event.clientX);
     }
@@ -5204,7 +5291,7 @@
         try {
             button?.releasePointerCapture?.(event.pointerId);
         } catch {
-            // 忽略 pointer capture 清理异常。
+            // Capture may already be lost; still clear the seek state below.
         }
         state.playerSeeking = false;
         state.playerSeekPointerId = null;
@@ -5526,18 +5613,170 @@
         renderPanel();
     }
 
-    // Speech compression is deliberately local: this graph has no speaker output
-    // and never asks for microphone access. MediaRecorder runs at normal speed.
+    async function supportsWebCodecsOpus() {
+        if (typeof AudioEncoder !== 'function' || typeof AudioData !== 'function') return false;
+        const support = await AudioEncoder.isConfigSupported({
+            codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 64000,
+        });
+        return support.supported;
+    }
+
+    function opusPacketSamples(packet) {
+        const config = packet[0] >> 3;
+        const frameSamples = config >= 16 ? 120 << (config & 3)
+            : config >= 12 ? 480 << (config & 1)
+                : (config & 3) === 3 ? 2880 : 480 << (config & 3);
+        const code = packet[0] & 3;
+        return frameSamples * (code === 0 ? 1 : code === 3 ? packet[1] & 63 : 2);
+    }
+
+    function muxOggOpus(packets, sampleCount, preSkip) {
+        const serial = crypto.getRandomValues(new Uint32Array(1))[0];
+        const pages = [];
+        function page(pagePackets, flags, granule) {
+            const segments = pagePackets.reduce((sum, packet) => sum + Math.floor(packet.length / 255) + 1, 0);
+            const payloadBytes = pagePackets.reduce((sum, packet) => sum + packet.length, 0);
+            if (segments > 255) throw translatedError('compressionEncoderFailed');
+            const bytes = new Uint8Array(27 + segments + payloadBytes);
+            const view = new DataView(bytes.buffer);
+            bytes.set([79, 103, 103, 83, 0, flags]);
+            view.setUint32(6, granule >>> 0, true);
+            view.setUint32(10, Math.floor(granule / 4294967296), true);
+            view.setUint32(14, serial, true);
+            view.setUint32(18, pages.length, true);
+            bytes[26] = segments;
+            let laceOffset = 27;
+            let payloadOffset = 27 + segments;
+            for (const packet of pagePackets) {
+                const fullSegments = Math.floor(packet.length / 255);
+                bytes.fill(255, laceOffset, laceOffset + fullSegments);
+                laceOffset += fullSegments;
+                // A terminating zero lace is required for exact multiples of 255.
+                bytes[laceOffset++] = packet.length % 255;
+                bytes.set(packet, payloadOffset);
+                payloadOffset += packet.length;
+            }
+            let crc = 0;
+            for (const byte of bytes) {
+                crc ^= byte << 24;
+                for (let bit = 0; bit < 8; bit += 1) {
+                    crc = (crc << 1) ^ ((crc & 0x80000000) ? 0x04c11db7 : 0);
+                }
+            }
+            view.setUint32(22, crc >>> 0, true);
+            pages.push(bytes);
+        }
+        const head = new Uint8Array(19);
+        head.set(new TextEncoder().encode('OpusHead'));
+        const headView = new DataView(head.buffer);
+        head[8] = 1;
+        head[9] = 1;
+        headView.setUint16(10, preSkip, true);
+        headView.setUint32(12, 48000, true);
+        page([head], 2, 0);
+        const vendor = new TextEncoder().encode('BunPro Local Audio');
+        const tags = new Uint8Array(16 + vendor.length);
+        tags.set(new TextEncoder().encode('OpusTags'));
+        new DataView(tags.buffer).setUint32(8, vendor.length, true);
+        tags.set(vendor, 12);
+        page([tags], 0, 0);
+        let granule = 0;
+        let pagePackets = [];
+        let pageSegments = 0;
+        let pageSamples = 0;
+        if (!packets.length) throw translatedError('compressionEmptyClip');
+        for (let index = 0; index < packets.length; index += 1) {
+            const packet = packets[index];
+            const segments = Math.floor(packet.length / 255) + 1;
+            const samples = opusPacketSamples(packet);
+            if (segments > 255) throw translatedError('compressionEncoderFailed');
+            // Keep whole packets together while bounding page overhead and duration.
+            if (pagePackets.length && (pageSegments + segments > 255 || pageSamples + samples > 48000)) {
+                page(pagePackets, 0, granule);
+                pagePackets = [];
+                pageSegments = 0;
+                pageSamples = 0;
+            }
+            pagePackets.push(packet);
+            pageSegments += segments;
+            pageSamples += samples;
+            granule += samples;
+            const last = index === packets.length - 1;
+            // The last page trims encoder padding without discarding the codec delay.
+            if (last && (granule < preSkip + sampleCount
+                || preSkip + sampleCount <= granule - samples)) {
+                throw translatedError('compressionValidationFailed');
+            }
+            if (last) page(pagePackets, 4, preSkip + sampleCount);
+        }
+        return new Blob(pages, { type: 'audio/ogg;codecs=opus' });
+    }
+
+    async function encodeWebCodecsOpus(mono, job, awaitOrAbort, checkCancelled) {
+        const packets = [];
+        let preSkip = 312;
+        let encoderError;
+        let encoder;
+        const previousAbort = job.abortCurrent;
+        const closeEncoder = () => {
+            if (encoder && encoder.state !== 'closed') encoder.close();
+        };
+        const abort = () => {
+            previousAbort();
+            closeEncoder();
+        };
+        job.abortCurrent = abort;
+        try {
+            encoder = new AudioEncoder({
+                output: (chunk, metadata) => {
+                    const packet = new Uint8Array(chunk.byteLength);
+                    chunk.copyTo(packet);
+                    packets.push(packet);
+                    const description = metadata?.decoderConfig?.description;
+                    if (description) {
+                        const bytes = ArrayBuffer.isView(description)
+                            ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+                            : new Uint8Array(description);
+                        if (bytes.length >= 19 && new TextDecoder().decode(bytes.subarray(0, 8)) === 'OpusHead') {
+                            preSkip = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(10, true);
+                        }
+                    }
+                },
+                error: (error) => { encoderError = error; },
+            });
+            encoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 64000 });
+            const samples = mono.getChannelData(0);
+            for (let offset = 0; offset < samples.length; offset += 960) {
+                checkCancelled();
+                if (encoderError) throw encoderError;
+                const data = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfChannels: 1,
+                    numberOfFrames: Math.min(960, samples.length - offset),
+                    timestamp: Math.round(offset * 1000000 / 48000), data: samples.subarray(offset, offset + 960) });
+                try { encoder.encode(data); } finally { data.close(); }
+                // Bound queued PCM and yield to Cancel even when encoding runs off-thread.
+                if (offset % (960 * 16) === 0 || encoder.encodeQueueSize > 16) {
+                    do {
+                        await awaitOrAbort(new Promise(resolve => setTimeout(resolve, 0)));
+                        checkCancelled();
+                        if (encoderError) throw encoderError;
+                    } while (encoder.encodeQueueSize > 16);
+                }
+            }
+            await awaitOrAbort(encoder.flush());
+            checkCancelled();
+            if (encoderError) throw encoderError;
+            return muxOggOpus(packets, mono.length, preSkip);
+        } finally {
+            closeEncoder();
+            if (job.abortCurrent === abort) job.abortCurrent = previousAbort;
+        }
+    }
+
+    // Both encoders stay local and never connect to a speaker or microphone.
     async function encodeSpeechOpus(blob, audioContext, job) {
         const abortError = () => new DOMException(t('compressionAbort'), 'AbortError');
         const checkCancelled = () => { if (job.cancelled) throw abortError(); };
         checkCancelled();
-        if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
-            throw translatedError('compressionRecorderUnavailable');
-        }
-        const mimeType = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
-            .find((type) => MediaRecorder.isTypeSupported(type));
-        if (!mimeType) throw translatedError('compressionEncoderUnavailable');
         if (!audioContext || audioContext.state === 'closed') {
             throw translatedError('compressionContextUnavailable');
         }
@@ -5590,6 +5829,42 @@
                 }
             }
             checkCancelled();
+            async function validate(encoded) {
+                if (!encoded.size) throw translatedError('compressionEmptyClip');
+                const verification = await awaitOrAbort(audioContext.decodeAudioData(await awaitOrAbort(encoded.arrayBuffer())));
+                checkCancelled();
+                // Keep the same decode gate for both container/encoder paths.
+                if (verification.numberOfChannels !== 1
+                    || !Number.isFinite(verification.duration)
+                    || verification.duration < duration - 0.08
+                    || verification.duration > duration + 0.65) {
+                    throw translatedError('compressionValidationFailed');
+                }
+                return {
+                    blob: encoded,
+                    mimeType: encoded.type,
+                    extension: /ogg/i.test(encoded.type) ? '.ogg' : '.webm',
+                    duration: verification.duration,
+                };
+            }
+            try {
+                if (await awaitOrAbort(supportsWebCodecsOpus())) {
+                    checkCancelled();
+                    return await validate(await encodeWebCodecsOpus(mono, job, awaitOrAbort, checkCancelled));
+                }
+                console.warn('[BunPro Local Audio] WebCodecs Opus unavailable; using MediaRecorder.');
+            } catch (error) {
+                checkCancelled();
+                if (error?.name === 'AbortError') throw error;
+                console.warn('[BunPro Local Audio] WebCodecs Opus failed; using MediaRecorder:', error);
+            }
+            checkCancelled();
+            if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
+                throw translatedError('compressionRecorderUnavailable');
+            }
+            const mimeType = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
+                .find((type) => MediaRecorder.isTypeSupported(type));
+            if (!mimeType) throw translatedError('compressionEncoderUnavailable');
             destination = audioContext.createMediaStreamDestination();
             destination.channelCount = 1;
             destination.channelCountMode = 'explicit';
@@ -5647,24 +5922,7 @@
                 } catch (error) { fail(error); }
             }));
             checkCancelled();
-            if (!encoded.size) throw translatedError('compressionEmptyClip');
-            const verification = await awaitOrAbort(audioContext.decodeAudioData(await awaitOrAbort(encoded.arrayBuffer())));
-            checkCancelled();
-            // Decode the result before allowing the owner to replace any record.
-            // Reject truncated, stretched, or unexpected stereo output. Padding
-            // allowance covers Opus framing and the short safety lead/tail above.
-            if (verification.numberOfChannels !== 1
-                || !Number.isFinite(verification.duration)
-                || verification.duration < duration - 0.08
-                || verification.duration > duration + 0.65) {
-                throw translatedError('compressionValidationFailed');
-            }
-            return {
-                blob: encoded,
-                mimeType: encoded.type || mimeType,
-                extension: /ogg/i.test(encoded.type || mimeType) ? '.ogg' : '.webm',
-                duration: verification.duration,
-            };
+            return await validate(encoded);
         } finally {
             clearTimeout(tailTimer);
             clearTimeout(watchdog);
@@ -5695,8 +5953,9 @@
 
     function createCompressionContext() {
         const Context = window.AudioContext || window.webkitAudioContext;
-        if (!Context || !window.MediaRecorder || !['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
-            .some((mime) => MediaRecorder.isTypeSupported(mime))) {
+        if (!Context || (typeof AudioEncoder !== 'function' && (!window.MediaRecorder
+            || !['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
+                .some((mime) => MediaRecorder.isTypeSupported(mime))))) {
             throw new Error('This browser does not support native Opus encoding.');
         }
         return new Context({ sampleRate: 48000 });
@@ -6096,11 +6355,10 @@
         const answer = findQuizAnswerContainer();
         if (!answer?.parentElement) return null;
 
-        // In BunPro's September 2026 footer, the hidden/native audio player,
-        // Undo / Show Info / Alternatives row, and .bp-quiz-console are direct
-        // siblings in that order. When no player is visible, anchoring above the
-        // answer console overlaps the action row. Use the nearest preceding visible
-        // controls sibling instead, while ignoring player wrappers handled earlier.
+        // The footer's native player, Undo / Show Info / Alternatives row, and
+        // .bp-quiz-console are direct siblings in that order. With no visible player,
+        // anchoring above the answer console would overlap the action row. Use the
+        // nearest preceding visible controls sibling, excluding player wrappers.
         const siblings = [...answer.parentElement.children];
         for (let index = siblings.indexOf(answer) - 1; index >= 0; index -= 1) {
             const candidate = siblings[index];
@@ -6262,7 +6520,7 @@
             state.lookupError = null;
             state.overrideFound = false;
             state.entry = null;
-            state.pRouteOwner = '';
+            releasePRoute();
             setPanelMessage('deleted');
         } catch (error) {
             state.lookupError = error.translation || { key: null, vars: { error: error.message } };
@@ -6400,9 +6658,9 @@
         }, 50);
     }
 
-    // 本地播放器每帧都会重写进度条宽度和剩余时间，那些都是我们自己写进去的
-    // DOM。3.5 里它们同样会触发 MutationObserver，于是播放期间 sync 被顶到
-    // 20Hz，每次都重跑 readPageContext + renderPanel。这里把自己的写入过滤掉。
+    // The local player writes progress width and remaining time every frame.
+    // Ignore those owned mutations to avoid repeatedly reading page context and
+    // rerendering the panel at the sync debounce limit of 20 Hz during playback.
     function isSelfOwnedNode(node) {
         const element = node instanceof Element
             ? node
@@ -6450,6 +6708,8 @@
             ],
         });
 
+        // The observer filters attributes and ignores text-node changes; 750 ms
+        // polling catches page updates that those mutation filters cannot see.
         window.setInterval(scheduleSync, CONFIG.SYNC_INTERVAL_MS);
         scheduleSync();
     }
@@ -6684,19 +6944,19 @@
         }
     `);
 
-    // 必须在 BunPro 的 bundle 创建它的 `new Audio()` 之前装上（@run-at
-    // document-start 保证了这一点），否则第一条音频就漏掉了。
+    // Install at document-start before BunPro creates detached Audio elements,
+    // so their first playback and rate assignment are observed.
     installMediaElementTracking();
-    // Open the unchanged 0.5.x database early so the first P press after reveal is
-    // unlikely to race the initial IndexedDB connection.
+    // Open the database early so the first P after reveal is unlikely to race
+    // the initial IndexedDB connection.
     void openAudioDb().then(() => preloadLookupCache())
         .catch((error) => debug('IndexedDB warm-up failed', error));
 
     navigator.mediaDevices?.addEventListener?.('devicechange', onMicrophoneDeviceChange);
     window.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('click', onClick, true);
-    // 仍然保留 document 上的捕获监听：DOM 里的 <audio> 走这条；
-    // 游离元素由 trackMediaElement() 直接绑在元素上。
+    // Document capture covers DOM media; trackMediaElement() attaches listeners
+    // directly to detached elements because their events cannot reach document.
     ['ended', 'error', 'abort', 'emptied'].forEach((eventName) => {
         document.addEventListener(eventName, onBunproPageMediaStateChanged, true);
     });
@@ -6704,6 +6964,8 @@
     document.addEventListener('pointermove', onPointerMove, true);
     document.addEventListener('pointerup', (event) => finishPointerSeek(event, false), true);
     document.addEventListener('pointercancel', (event) => finishPointerSeek(event, true), true);
+    // This teardown permanently releases resources. Using pagehide would leave
+    // a back/forward-cache restore half-initialized, so reserve it for beforeunload.
     window.addEventListener('beforeunload', () => {
         navigator.mediaDevices?.removeEventListener?.('devicechange', onMicrophoneDeviceChange);
         if (state.compressionJob) {

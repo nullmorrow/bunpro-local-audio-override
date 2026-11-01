@@ -100,7 +100,7 @@ def main():
                         error: String(error) + '\\n' + (error.stack || ''),
                         state: {sentence: __lookupTest.state.normalizedSentence,
                             eligible: __lookupTest.state.eligible, status: __lookupTest.state.lookupStatus,
-                            owner: __lookupTest.state.pRouteOwner}});
+                            owner: __lookupTest.state.pRoute.owner}});
             };''', negative)
             driver.find_element(By.ID, 'run').click()
             result = WebDriverWait(driver, 60).until(lambda d: d.execute_script('return window.testResult || null'))
