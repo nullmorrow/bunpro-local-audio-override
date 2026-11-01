@@ -1,6 +1,6 @@
 # BunPro Local Audio Override — Greasy Fork Changelog
 
-## 0.6.1.7 — 2026-11-01
+## 0.6.1.7 — 2026-11-02
 
 - 浏览器支持 WebCodecs Opus 时，音频压缩明显快于实时播放，Firefox 和 Chrome 均生成 Ogg/Opus；不支持或编码失败时，继续使用原来的实时压缩方式。
 
