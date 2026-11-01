@@ -54,17 +54,16 @@
         SYNC_INTERVAL_MS: 750,
         PANEL_GAP_PX: 10,
         PANEL_EDGE_PX: 8,
-        // 共享麦克风流在空闲这么久之后才真正释放设备。每次按 P 都重开
-        // getUserMedia 会让 Chrome 反复切换音频渲染路径，正在播放的音频
-        // 会在几百毫秒内卡死，所以 3.6 起改成长期持有、按需复用。
+        // Reopening getUserMedia on every P can switch Chrome's audio rendering
+        // path and stall reference playback. Reuse the stream until it has been idle.
         MIC_IDLE_RELEASE_MS: 180000,
         MIC_REQUEST_TIMEOUT_MS: 10000,
         MIC_FAILURE_RETRY_MS: 30000,
         MIC_MUTE_GRACE_MS: 1500,
-        // 单次录音最多保留 120 秒；到时自动停止并保留录音供 O 键回听。
+        // Bound each take to 120 seconds while retaining it for O replay.
         RECORDING_MAX_DURATION_MS: 120000,
-        // BunPro 在切题/预取时会短暂把 data-meta-* 置成不合格状态。
-        // 正在播放时给一个宽限期，避免把播放误判成“换题”而中断。
+        // BunPro briefly invalidates data-meta-* during question changes and prefetch.
+        // Allow a grace period so transient metadata does not interrupt playback.
         PAGE_STATE_GRACE_MS: 1500,
         DEBUG: false,
     });
@@ -1155,7 +1154,7 @@
         recordingPlaybackGeneration: 0,
         recordingPlaybackLastError: '',
 
-        // 3.6：共享麦克风流。整页只开一次设备，录音会话之间复用。
+        // Reuse one microphone stream across takes to avoid device routing stalls.
         micStream: null,
         micStreamPromise: null,
         micRequest: null,
@@ -1164,7 +1163,7 @@
         micStreamKey: '',
         micIdleTimer: 0,
 
-        // 3.6：页面短暂不合格时的宽限起点，避免播放被切题误判打断。
+        // Track transient ineligibility so a React update does not interrupt playback.
         ineligibleSince: 0,
 
         pHotkeyGeneration: 0,
@@ -1180,7 +1179,7 @@
         panelPositionScheduled: false,
         syntheticPlayButton: null,
 
-        // 本地播放器状态。播放器尽量直接接管 BunPro 原有 DOM；没有原生 DOM 时再创建同款结构。
+        // Reuse BunPro's player DOM where available; create a matching fallback otherwise.
         playerOpen: false,
         playerWrapper: null,
         playerWrapperIsNative: false,
@@ -1346,9 +1345,6 @@
         renderPanel();
     }
 
-    // 'raw'   —— 关闭 AEC/降噪/AGC。Chrome 不会把输出重路由到回声消除渲染流，
-    //            这正是 3.6 修掉“按 P 播放不到一秒就卡死”的关键。
-    // 'clean' —— 保留 3.5 的行为，代价是部分设备上会卡播放。
     const RECORDING_GAIN_LEVELS = Object.freeze([1, 1.5, 2, 3, 4]);
     function getRecordingGain() {
         const value = Number(getSetting(STORAGE_KEYS.RECORDING_GAIN, 1));
@@ -1363,6 +1359,8 @@
         renderPanel();
     }
 
+    // Raw mode avoids Chrome's echo-cancellation output rerouting, which can
+    // stall playback on some devices; clean mode opts into browser processing.
     function getMicProcessingMode() {
         return getSetting(STORAGE_KEYS.MIC_PROCESSING, 'raw') === 'clean' ? 'clean' : 'raw';
     }
@@ -1371,7 +1369,7 @@
         const value = mode === 'clean' ? 'clean' : 'raw';
         if (value === getMicProcessingMode()) return;
         setSetting(STORAGE_KEYS.MIC_PROCESSING, value);
-        // 约束变了就必须重新取流，否则旧流仍带着旧的处理链。
+        // Reacquire the stream because existing tracks retain their processing constraints.
         releaseMicrophoneStream('mic-processing-changed');
         resetMicrophoneRetry();
         renderPanel();
@@ -1643,6 +1641,8 @@
         return translatedError('storageUnavailable', { error: detail });
     }
 
+    // Keep camelCase and snake_case aliases: older readers and migration tools
+    // accept either spelling in stored entries.
     function normalizeStoredEntry(record) {
         if (!record) return null;
         const fileName = String(record.fileName || record.file_name || record.file || 'audio');
@@ -2373,9 +2373,8 @@
     }
 
     function findQuizAnswerContainer() {
-        // BunPro removed the tour wrapper IDs in September 2026. Keep the old selector
-        // for older deployments, then use the stable quiz-console class from the new
-        // InputManual/InputFlashcard components.
+        // Support both the tour-wrapper layout and InputManual/InputFlashcard
+        // layouts that expose only the stable quiz-console class.
         return document.querySelector('#js-tour-quiz-answer') ||
             document.querySelector('#js-quiz .bp-quiz-console');
     }
@@ -2451,7 +2450,7 @@
                 state.audio.pause();
                 state.audio.currentTime = 0;
             } catch {
-                // 忽略媒体关闭异常，避免影响题目切换。
+                // A media cleanup failure must not prevent switching questions.
             }
         }
         paintLocalPlayerProgress();
@@ -2566,10 +2565,9 @@
         return state.lookupPromise;
     }
 
-    // BunPro 在 React 重渲染、预取下一题、reveal 动画期间会短暂把
-    // data-meta-* 写成不合格状态。3.5 一看到不合格就 resetForSentence('')，
-    // 而那条路径会 stopLocalAudio()——正在播的音频就被拦腰砍断。
-    // 3.6 在有音频在播时给一个宽限期，只有持续不合格才真正拆掉。
+    // React rerenders, prefetch and reveal animations can briefly invalidate
+    // data-meta-*. Defer teardown during playback until ineligibility persists,
+    // because resetForSentence would otherwise stop the current audio.
     function shouldDeferIneligibleTeardown() {
         if (!isLocalAudioPlaying() && !state.pPlaybackStartPending) {
             state.ineligibleSince = 0;
@@ -2653,12 +2651,11 @@
         return objectUrl;
     }
 
-    // BunPro 现在把播放器音频放在 React ref 里的 `new Audio()`，元素从不进入
-    // DOM（见 Review 页 chunk 532 的 useAudioPlayer）。所以 querySelectorAll
-    // 找不到它，绑在 document 上的 ended/error 也永远不会触发——游离元素没有
-    // 父链可冒泡。3.6 起 hook play() 登记真正播过的元素；3.6.2 也 hook
-    // playbackRate setter，因为本地 Override 会拦截播放，BunPro 的 Audio 可能尚未
-    // 调用 play()，但 React 仍会先把账户的 75%/85% 等速度写到该游离元素上。
+    // BunPro keeps new Audio() elements in React refs outside the DOM, where
+    // document queries and event capture cannot reach them. Hook play() to track
+    // active media and playbackRate to observe settings before the first play:
+    // a local override can prevent BunPro's element from ever playing, even though
+    // React already assigned the account's speed (for example 75% or 85%).
     const trackedMediaElements = new Set();
 
     function isOwnMediaElement(media) {
@@ -2712,7 +2709,7 @@
                 try {
                     trackMediaElement(this);
                 } catch {
-                    // 追踪失败绝不能影响页面自身的播放。
+                    // Tracking failures must not interfere with BunPro's own playback.
                 }
                 return nativePlay.apply(this, args);
             };
@@ -2754,7 +2751,7 @@
     function collectCandidateMediaElements() {
         const candidates = new Set(document.querySelectorAll('audio, video'));
         trackedMediaElements.forEach((media) => {
-            // src 被清空的元素已经废弃了，顺手回收，避免集合无限增长。
+            // Drop abandoned detached elements with no source so tracking stays bounded.
             if (!media.isConnected && !media.currentSrc && !media.src) {
                 trackedMediaElements.delete(media);
                 return;
@@ -2765,9 +2762,9 @@
     }
 
     function pausePageMedia() {
-        // BunPro 的播放器把 isPlaying 保存在 React state 中。只对游离 Audio
-        // 调 pause() 会让媒体停下、进度归零，但按钮仍显示 PAUSE。先点击当前
-        // 可见的暂停按钮，让 BunPro 自己同步状态；随后仍逐个媒体兜底归零。
+        // Pausing detached media alone leaves BunPro's React isPlaying state and
+        // PAUSE icon stale. Click its visible pause button to synchronize that state,
+        // then reset each media element as a fallback.
         const nativePauseButton = (() => {
             const player = findVisibleBunproAudioPlayer();
             if (!player) return null;
@@ -2986,22 +2983,15 @@
             try {
                 track.stop();
             } catch {
-                // 忽略已经结束的麦克风轨道。
+                // One failed track cleanup must not prevent releasing the remaining tracks.
             }
         });
     }
 
-    // ---------------------------------------------------------------------
-    // 共享麦克风流（3.6）
-    //
-    // 3.5 每按一次 P 都会 stop() 掉上一条流的轨道，再重新 getUserMedia()。
-    // 在 Chrome/Windows 上这会让音频服务反复在“普通渲染流”和“回声消除渲染流”
-    // 之间切换，正在播放的 <audio> 会在几百毫秒后卡死——本地 Override 和
-    // BunPro 原生音频都会中招，因为两条 P 路径都调用了 restartVoiceRecording()。
-    //
-    // 3.6 改为：整页只取一次流，录音会话之间复用；默认关闭 AEC/降噪/AGC，
-    // 让 Chrome 根本不进入回声消除渲染路径。
-    // ---------------------------------------------------------------------
+    // Sharing the microphone avoids repeated device opens that can switch
+    // Chrome/Windows between normal and echo-cancellation rendering paths,
+    // stalling both local and native reference audio. Raw constraints also keep
+    // AEC, noise suppression and AGC from activating that processing path.
 
     function getMicConstraints() {
         if (getMicProcessingMode() === 'clean') return { audio: true };
@@ -3410,7 +3400,7 @@
             const audio = new Audio();
             audio.preload = 'auto';
             audio.loop = true;
-            // WAV 本身是全静音；保持 unmuted，才能在严格策略下解锁后续有声回放。
+            // The WAV is silent; leave it unmuted to unlock later audible playback under strict autoplay policies.
             audio.muted = false;
             audio.volume = 1;
             audio.setAttribute('aria-hidden', 'true');
@@ -3459,7 +3449,7 @@
             audio.load();
             audio.remove();
         } catch {
-            // 忽略录音回放清理异常。
+            // A stale player cleanup failure must not prevent starting the next replay.
         }
     }
 
@@ -3479,7 +3469,7 @@
             try {
                 URL.revokeObjectURL(state.recordingObjectUrl);
             } catch {
-                // 忽略录音 Object URL 清理异常。
+                // A URL cleanup failure must not retain the stale recording in state.
             }
         }
         state.recordingObjectUrl = '';
@@ -3534,8 +3524,8 @@
                 session.maxDurationTimer = 0;
             }
 
-            // 3.6：绝不在这里 stop() 麦克风轨道。流是整页共享的，停掉它会让
-            // Chrome 切换音频渲染路径，把刚开始的播放弄卡。只做空闲回收计时。
+            // Keep shared microphone tracks alive between takes: stopping them can
+            // switch Chrome's render path and stall audio that has just started.
             if (session.ownsStream) stopMediaStream(session.stream);
             else scheduleMicIdleRelease();
             if (!session.discard && blob?.size) {
@@ -3553,11 +3543,11 @@
         } catch (error) {
             console.warn('[BunPro Local Audio] Recording cleanup:', error);
         } finally {
-            // UI/render 清理即使异常，也绝不能把后续 P 永久锁在未决 Promise 上。
+            // Always settle the stop Promise, even if UI cleanup fails, so later P presses cannot hang.
             try {
                 session.resolveStop(result);
             } catch {
-                // Promise resolver 正常不会抛错；保持收尾幂等。
+                // Keep finalization idempotent even if a stop callback throws.
             }
         }
     }
@@ -3581,7 +3571,7 @@
             try {
                 if (session.recorder.state !== 'inactive') session.recorder.stop();
             } catch {
-                // 丢弃旧录音时无需等待 MediaRecorder 的最终数据。
+                // Discarded takes do not need the recorder's final data before releasing the session.
             }
             completeRecordingSession(session, null);
             return session.stopPromise;
@@ -3592,7 +3582,7 @@
                 try {
                     session.recorder.requestData?.();
                 } catch {
-                    // stop() 仍会请求最后一批数据。
+                    // stop() still requests the final data if requestData() fails.
                 }
                 session.recorder.stop();
             } catch (error) {
@@ -3618,7 +3608,7 @@
         const generation = ++state.recordingGeneration;
         state.recordingStartPending = true;
         cancelRecordedAudioPlayback();
-        // 流已经在手上时不再显示“正在请求麦克风”，那是首次授权才有的状态。
+        // A reused stream needs no new permission request, so avoid showing the permission-wait status.
         showRecordingStatus(state.micStream ? 'recordingActive' : 'recordingStarting');
 
         await finalizeRecordingSession(true);
@@ -3669,7 +3659,7 @@
                 stream,
                 gainInput,
                 recordingGain,
-                // 共享流由 releaseMicrophoneStream() 统一回收，会话不拥有它。
+                // releaseMicrophoneStream() owns the shared stream; a take must not stop it.
                 ownsStream: false,
                 chunks,
                 mimeType,
@@ -3690,7 +3680,7 @@
                 try {
                     if (recorder.state !== 'inactive') recorder.stop();
                 } catch {
-                    // 下面的统一收尾会释放媒体轨道和 Promise。
+                    // The common finalizer below still releases session resources and settles its Promise.
                 }
                 completeRecordingSession(session, null);
             });
@@ -3777,8 +3767,8 @@
             }
         }
 
-        // 必须在 O 键的同步用户手势内调用 resume()。否则 Firefox 可能在
-        // MediaRecorder 异步 stop 事件之后，把录音回放当成自动播放并拦截。
+        // Resume synchronously within the O gesture: after MediaRecorder's async
+        // stop event, Firefox may treat replay as autoplay and block it.
         if (context.state === 'suspended') {
             void context.resume().catch(() => {});
         }
@@ -3791,7 +3781,7 @@
                 try {
                     silentSource.disconnect();
                 } catch {
-                    // 忽略一次性静音解锁节点的清理异常。
+                    // An unlock-node cleanup failure must not affect recording replay.
                 }
             };
             silentSource.start(0);
@@ -3826,7 +3816,7 @@
                 try {
                     source.disconnect();
                 } catch {
-                    // 忽略已经断开的回放节点。
+                    // The playback node may already be disconnected.
                 }
             };
             source.start(0);
@@ -3852,7 +3842,7 @@
                         new Promise((resolve) => window.setTimeout(resolve, 500)),
                     ]);
                 } catch {
-                    // 仍继续尝试实际录音；失败后还会回退到 Web Audio。
+                    // Failed silent priming need not block real playback; Web Audio remains a fallback.
                 }
                 recordingPlaybackPrimePromises.delete(audio);
             }
@@ -3899,8 +3889,8 @@
         pausePageMedia();
         showRecordingStatus('recordingPlaybackStarting');
 
-        // 本函数由 O 键同步调用。async 函数会在首个 await 前立即执行 audio.play()，
-        // 因而已有 Blob 时完全保留按键的瞬时用户激活。
+        // Calling this async player before its first await invokes audio.play()
+        // inside the O gesture, preserving transient activation for an existing Blob.
         const playbackAttempt = playRecordingWithAudioElement(
             recording,
             new Audio(),
@@ -3961,7 +3951,7 @@
             try {
                 if (session.recorder.state !== 'inactive') session.recorder.stop();
             } catch {
-                // 页面退出时无需等待 MediaRecorder 完成收尾。
+                // Page teardown cannot wait for the recorder's asynchronous final data.
             }
             completeRecordingSession(session, null);
         }
@@ -4088,7 +4078,7 @@
             try {
                 audio.currentTime = 0;
             } catch {
-                // 元数据尚未就绪时，浏览器会在开始播放后自然从 0 开始。
+                // Without ready metadata, playback will start naturally at zero.
             }
         }
         const speed = applyCurrentPlaybackRate(audio);
@@ -4238,9 +4228,9 @@
             }
         }
 
-        // New layout: the audio-player wrapper and .bp-quiz-console are direct siblings
-        // inside the centre column of the quiz footer. Looking only at direct children
-        // selects the outer wrapper whose hidden/visible class React toggles.
+        // The audio-player wrapper and .bp-quiz-console are direct siblings inside
+        // the quiz footer's centre column. Restricting the search to direct children
+        // selects the outer wrapper whose visibility React toggles.
         const answer = findQuizAnswerContainer();
         const siblings = answer?.parentElement ? [...answer.parentElement.children] : [];
         return siblings.find((element) =>
@@ -5282,7 +5272,7 @@
         try {
             button.setPointerCapture?.(event.pointerId);
         } catch {
-            // 某些浏览器在捕获阶段不允许立即设置 pointer capture。
+            // Some browsers reject pointer capture during the capturing phase.
         }
         setLocalAudioPositionFromClientX(event.clientX);
     }
@@ -5301,7 +5291,7 @@
         try {
             button?.releasePointerCapture?.(event.pointerId);
         } catch {
-            // 忽略 pointer capture 清理异常。
+            // Capture may already be lost; still clear the seek state below.
         }
         state.playerSeeking = false;
         state.playerSeekPointerId = null;
@@ -6193,11 +6183,10 @@
         const answer = findQuizAnswerContainer();
         if (!answer?.parentElement) return null;
 
-        // In BunPro's September 2026 footer, the hidden/native audio player,
-        // Undo / Show Info / Alternatives row, and .bp-quiz-console are direct
-        // siblings in that order. When no player is visible, anchoring above the
-        // answer console overlaps the action row. Use the nearest preceding visible
-        // controls sibling instead, while ignoring player wrappers handled earlier.
+        // The footer's native player, Undo / Show Info / Alternatives row, and
+        // .bp-quiz-console are direct siblings in that order. With no visible player,
+        // anchoring above the answer console would overlap the action row. Use the
+        // nearest preceding visible controls sibling, excluding player wrappers.
         const siblings = [...answer.parentElement.children];
         for (let index = siblings.indexOf(answer) - 1; index >= 0; index -= 1) {
             const candidate = siblings[index];
@@ -6497,9 +6486,9 @@
         }, 50);
     }
 
-    // 本地播放器每帧都会重写进度条宽度和剩余时间，那些都是我们自己写进去的
-    // DOM。3.5 里它们同样会触发 MutationObserver，于是播放期间 sync 被顶到
-    // 20Hz，每次都重跑 readPageContext + renderPanel。这里把自己的写入过滤掉。
+    // The local player writes progress width and remaining time every frame.
+    // Ignore those owned mutations to avoid repeatedly reading page context and
+    // rerendering the panel at the sync debounce limit of 20 Hz during playback.
     function isSelfOwnedNode(node) {
         const element = node instanceof Element
             ? node
@@ -6547,6 +6536,8 @@
             ],
         });
 
+        // The observer filters attributes and ignores text-node changes; 750 ms
+        // polling catches page updates that those mutation filters cannot see.
         window.setInterval(scheduleSync, CONFIG.SYNC_INTERVAL_MS);
         scheduleSync();
     }
@@ -6781,19 +6772,19 @@
         }
     `);
 
-    // 必须在 BunPro 的 bundle 创建它的 `new Audio()` 之前装上（@run-at
-    // document-start 保证了这一点），否则第一条音频就漏掉了。
+    // Install at document-start before BunPro creates detached Audio elements,
+    // so their first playback and rate assignment are observed.
     installMediaElementTracking();
-    // Open the unchanged 0.5.x database early so the first P press after reveal is
-    // unlikely to race the initial IndexedDB connection.
+    // Open the database early so the first P after reveal is unlikely to race
+    // the initial IndexedDB connection.
     void openAudioDb().then(() => preloadLookupCache())
         .catch((error) => debug('IndexedDB warm-up failed', error));
 
     navigator.mediaDevices?.addEventListener?.('devicechange', onMicrophoneDeviceChange);
     window.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('click', onClick, true);
-    // 仍然保留 document 上的捕获监听：DOM 里的 <audio> 走这条；
-    // 游离元素由 trackMediaElement() 直接绑在元素上。
+    // Document capture covers DOM media; trackMediaElement() attaches listeners
+    // directly to detached elements because their events cannot reach document.
     ['ended', 'error', 'abort', 'emptied'].forEach((eventName) => {
         document.addEventListener(eventName, onBunproPageMediaStateChanged, true);
     });
@@ -6801,6 +6792,8 @@
     document.addEventListener('pointermove', onPointerMove, true);
     document.addEventListener('pointerup', (event) => finishPointerSeek(event, false), true);
     document.addEventListener('pointercancel', (event) => finishPointerSeek(event, true), true);
+    // This teardown permanently releases resources. Using pagehide would leave
+    // a back/forward-cache restore half-initialized, so reserve it for beforeunload.
     window.addEventListener('beforeunload', () => {
         navigator.mediaDevices?.removeEventListener?.('devicechange', onMicrophoneDeviceChange);
         if (state.compressionJob) {
