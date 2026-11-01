@@ -4,17 +4,17 @@ Store a custom audio clip for a BunPro sentence and practise speaking with **P**
 to play and record, then **O** to review your own voice. The published 0.6.x
 edition runs entirely in your browser: no Python server and no audio uploads.
 
-Current release: **0.6.1.5**, October 5, 2026.
+Current release: **0.6.1.6**, November 1, 2026.
 
 [Install from Greasy Fork](https://greasyfork.org/en/scripts/583595-bunpro-local-audio-override)
-· [Release notes](docs/release-notes-0.6.1.5.md)
+· [Release notes](docs/release-notes-0.6.1.6.md)
 · [简体中文详细说明](docs/guide.zh-CN.md)
 
 This is an unofficial community project, not affiliated with BunPro.
 
 Source code and releases: [nullmorrow/bunpro-local-audio-override](https://github.com/nullmorrow/bunpro-local-audio-override).
 
-The [October 19 validation report](docs/validation-2026-10-19.md) records the latest
+The [November 1 validation report](docs/validation-2026-11-01.md) records the latest
 Firefox and Chrome regression results for this source.
 
 ## Install or update
@@ -146,7 +146,7 @@ future BunPro page changes may require another update.
 
 ## Development and validation
 
-See [the validation report](docs/validation-2026-10-03.md) for the tested versions,
+See [the validation report](docs/validation-2026-11-01.md) for the tested versions,
 source hashes, regression counts and limits. Tests use separate headless profiles,
 generated audio and controlled device failures, never a personal BunPro library.
 They do not replace physical USB-disconnect tests, listening checks or a live

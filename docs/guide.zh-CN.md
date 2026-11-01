@@ -1,4 +1,4 @@
-# BunPro Local Audio Override v0.6.1.5
+# BunPro Local Audio Override v0.6.1.6
 
 > 在浏览器中为 BunPro 句子保存自定义音频，并通过 P 键录音、O 键回听自己的发音。无需 Python、本地服务器或音频上传。
 
@@ -8,7 +8,7 @@
 
 BunPro Local Audio Override 是一个面向 BunPro 复习、Cram 和自学句子的油猴脚本。它可以把一个本地音频文件与当前句子关联，并在之后遇到同一句时，用自定义音频替代 BunPro 的句子音频。
 
-v0.6.1.5 将浏览器存储版的音频管理功能与口语练习录音整合到同一个脚本中：
+v0.6.1.6 将浏览器存储版的音频管理功能与口语练习录音整合到同一个脚本中：
 
 - 自定义音频按句子保存在当前浏览器的 IndexedDB 中。
 - 无需 Python、BAT、后台服务、固定文件路径或网络权限。
@@ -230,7 +230,7 @@ Admin 中的自动压缩开关默认关闭，选择会保存在当前浏览器�
 
 ## BunPro 页面兼容性
 
-v0.6.1.5 同时支持：
+v0.6.1.6 同时支持：
 
 - 旧版 `#js-tour-quiz-question`、`#js-tour-quiz-answer` 和 `#js-tour-quiz-pam` 结构；
 - 新版 `#js-quiz .bp-quiz-question` 和 `.bp-quiz-console` 结构。
@@ -252,7 +252,7 @@ v0.6.1.5 同时支持：
 
 ### P/O 出现重复播放或重复录音
 
-打开 Tampermonkey Dashboard，只保留 v0.6.1.5，禁用所有旧版或重复副本，然后完整刷新 BunPro 页面。
+打开 Tampermonkey Dashboard，只保留 v0.6.1.6，禁用所有旧版或重复副本，然后完整刷新 BunPro 页面。
 
 ### 没有本地覆盖时，P 键是否仍可使用
 
@@ -268,7 +268,9 @@ v0.6.1.5 同时支持：
 
 ## English summary for Greasy Fork
 
-**BunPro Local Audio Override v0.6.1.5** stores a custom audio clip for each BunPro cloze sentence in the browser's IndexedDB and plays it through a BunPro-style player. No Python process, localhost service, fixed source path, network permission, or upload is required.
+**BunPro Local Audio Override v0.6.1.6** stores a custom audio clip for each BunPro cloze sentence in the browser's IndexedDB and plays it through a BunPro-style player. No Python process, localhost service, fixed source path, network permission, or upload is required.
+
+New in **0.6.1.6**: large backups can be imported. Import reads the backup entry by entry instead of as one string, checks every entry before saving anything, shows checking and saving progress, and reports how many entries were saved if it stops part-way. The `.bpao` format is unchanged.
 
 New in **0.6.1.5**: large libraries can be exported, because the backup is now built entry by entry; the `.bpao` format is unchanged. A failed export through the save dialog leaves no partial file. Storage recovers without a page reload if the database connection closes, and pressing P right after the answer is revealed plays your local clip. Recording controls are translated in all seven interface languages. P/O keep working after using panel controls; mouse and touch interactions release focus for page keys, while keyboard navigation retains it. Switching language updates the current message and lookup error immediately. Status messages wrap on their own line, controls wrap in groups without truncated labels, and a translated choose-audio button opens the file chooser.
 
@@ -288,4 +290,4 @@ An optional **automatic compression** setting applies the same process to newly 
 
 There is no 512 MiB whole-backup cap. Import reads and validates entries without loading the whole file into one string, then saves clips in batches with checking and saving progress. If import stops, the message reports how many entries were saved; import the same file again with the same button to finish. Export also builds the backup entry by entry. The `.bpao` format is unchanged. The 50 MiB per-clip limit, available memory, disk space and browser storage quota determine practical capacity.
 
-Version 0.6.1.5 retains support for both legacy and September 2026 BunPro review layouts. It also tracks BunPro audio objects that Firefox keeps outside the DOM, allowing local overrides to follow BunPro playback rates such as 75% and 85%. The 0.6.1 fix is retained: after an O-key recording review ends naturally, the next P press starts a new playback-and-recording cycle immediately. Disable every older or duplicate copy of the script before use.
+Version 0.6.1.6 retains support for both legacy and September 2026 BunPro review layouts. It also tracks BunPro audio objects that Firefox keeps outside the DOM, allowing local overrides to follow BunPro playback rates such as 75% and 85%. The 0.6.1 fix is retained: after an O-key recording review ends naturally, the next P press starts a new playback-and-recording cycle immediately. Disable every older or duplicate copy of the script before use.
