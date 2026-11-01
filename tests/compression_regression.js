@@ -314,6 +314,10 @@ window.runWebCodecsRegression = async function () {
         let preSkip;
         let finalGranule;
         let previousGranule = 0;
+        let packets = 0;
+        let audioPages = 0;
+        let headerBytes = 0;
+        let cumulativeSamples = 0;
         const crcTable = Array.from({length:256}, (_, byte) => {
             let remainder = BigInt(byte) << 24n;
             for (let bit = 0; bit < 8; bit++) {
@@ -322,13 +326,16 @@ window.runWebCodecsRegression = async function () {
             return Number(remainder);
         });
         while (offset < bytes.length) {
+            if (offset + 27 > bytes.length) throw new Error('Truncated Ogg header');
             const segments = bytes[offset + 26];
+            if (!segments || offset + 27 + segments > bytes.length) throw new Error('Bad Ogg lacing table');
             let payload = 0;
             for (let i = 0; i < segments; i++) payload += bytes[offset + 27 + i];
             const length = 27 + segments + payload;
             if (offset + length > bytes.length) throw new Error('Ogg page overrun');
             const page = bytes.slice(offset, offset + length);
             const pageView = new DataView(page.buffer);
+            headerBytes += 27 + segments;
             if (new TextDecoder().decode(page.subarray(0, 4)) !== 'OggS' || page[4] !== 0) throw new Error('Bad Ogg capture/version');
             if (pageView.getUint32(18, true) !== sequence) throw new Error('Bad Ogg sequence');
             if (sequence === 0) serial = pageView.getUint32(14, true);
@@ -342,27 +349,80 @@ window.runWebCodecsRegression = async function () {
             const granule = view.getUint32(offset + 6, true) + view.getUint32(offset + 10, true) * 4294967296;
             if (granule < previousGranule) throw new Error('Non-monotonic Ogg granule');
             previousGranule = granule;
+            let packetOffset = 27 + segments;
+            let packetLength = 0;
+            let pagePackets = 0;
+            let pageSamples = 0;
+            let lastPacketSamples = 0;
+            for (let i = 0; i < segments; i++) {
+                const lace = page[27 + i];
+                packetLength += lace;
+                if (lace === 255) continue;
+                pagePackets++;
+                if (sequence >= 2) {
+                    if (!packetLength) throw new Error('Empty Opus packet');
+                    const toc = page[packetOffset];
+                    const config = toc >> 3;
+                    const frameSamples = config >= 16 ? [120, 240, 480, 960][config & 3]
+                        : config >= 12 ? [480, 960][config & 1] : [480, 960, 1920, 2880][config & 3];
+                    const frames = [1, 2, 2, page[packetOffset + 1] & 63][toc & 3];
+                    lastPacketSamples = frameSamples * frames;
+                    pageSamples += lastPacketSamples;
+                }
+                packetOffset += packetLength;
+                packetLength = 0;
+            }
+            if (packetLength || page[27 + segments - 1] === 255 || packetOffset !== page.length) {
+                throw new Error('Unterminated or split packet');
+            }
             if (sequence === 0) {
-                if (page[5] !== 2 || payload !== 19 || page[27 + segments + 9] !== 1) throw new Error('Bad OpusHead/BOS');
+                if (pagePackets !== 1 || page[5] !== 2 || payload !== 19 || page[27 + segments + 9] !== 1) throw new Error('Bad OpusHead/BOS');
                 preSkip = view.getUint16(offset + 27 + segments + 10, true);
-            } else if (sequence === 1 && new TextDecoder().decode(page.subarray(27 + segments, 35 + segments)) !== 'OpusTags') {
-                throw new Error('Missing OpusTags');
+            } else if (sequence === 1) {
+                if (pagePackets !== 1 || page[5] !== 0
+                    || new TextDecoder().decode(page.subarray(27 + segments, 35 + segments)) !== 'OpusTags') {
+                    throw new Error('Missing standalone OpusTags');
+                }
+            } else {
+                if (page[5] !== 0 && page[5] !== 4) throw new Error('Unexpected audio page flags');
+                if (pageSamples > 48000) throw new Error('Audio page exceeds one second');
+                packets += pagePackets;
+                audioPages++;
+                cumulativeSamples += pageSamples;
+                if (page[5] === 4 ? granule > cumulativeSamples || granule <= cumulativeSamples - lastPacketSamples
+                    : granule !== cumulativeSamples) throw new Error('Bad completed-packet granule');
             }
             if ((page[5] & 4) !== 0) {
                 if (offset + length !== bytes.length) throw new Error('Early EOS');
                 finalGranule = granule;
             }
-            if (page[27 + segments - 1] === 255) throw new Error('Unterminated packet');
             offset += length;
             sequence++;
         }
         check(sequence >= 3 && finalGranule === preSkip + count, 'Ogg CRC, sequence, BOS/EOS and exact final granule: ' + count + ' samples');
-        return {preSkip, finalGranule, pages:sequence};
+        return {preSkip, finalGranule, pages:sequence, packets, audioPages, headerBytes,
+            fileBytes:bytes.length, headerByteShare:headerBytes / bytes.length};
     }
     let ratio = null;
     let ogg = null;
     try {
         api.setUiLanguage('en');
+        // Whole-packet lacing and duration boundaries also run without WebCodecs.
+        for (const sizes of [[255], [256], [510], [65024], [65024, 255], [32385, 32384, 1], Array(51).fill(160)]) {
+            const packets = sizes.map(size => {
+                const packet = new Uint8Array(size);
+                packet[0] = 0x98; // One 20 ms frame; payload bytes are structural test doubles.
+                return packet;
+            });
+            const count = packets.length * 960 - 312;
+            const structure = await inspectOgg(api.muxOggOpus(packets, count, 312), count);
+            check(structure.packets === packets.length && structure.audioPages === (packets.length > 1 ? 2 : 1),
+                'Whole-packet paging respects lacing and one-second boundaries: ' + sizes.join(','));
+        }
+        let oversizedRejected = false;
+        try { api.muxOggOpus([new Uint8Array(65025)], 648, 312); }
+        catch (_) { oversizedRejected = true; }
+        check(oversizedRejected, 'Packets needing more than 255 laces are rejected without splitting');
         if (supported) {
             // Successful encoding with MediaRecorder absent proves path selection.
             window.MediaRecorder = undefined;
@@ -392,15 +452,11 @@ window.runWebCodecsRegression = async function () {
                 'WebCodecs output decodes as audible mono with exact duration');
             check(ratio < .5, 'WebCodecs several-second encoding is clearly faster than real time');
             ogg = await inspectOgg(encoded.blob, count);
+            check(ogg.audioPages < ogg.packets && ogg.headerByteShare < .03,
+                'Multi-second Ogg packs multiple packets per page with under 3% header bytes');
             for (const sampleCount of [1, 647, 648, 649, 959, 960, 961, 1921]) {
                 const boundary = await api.encodeSpeechOpus(wav(sampleCount), context, {cancelled:false});
                 await inspectOgg(boundary.blob, sampleCount);
-            }
-            // Packet lacing includes >255 bytes and exact multiples of 255.
-            for (const size of [255, 256, 510, 65024]) {
-                const packet = new Uint8Array(size);
-                packet[0] = 0x98; // One 20 ms frame; payload bytes are structural test doubles.
-                await inspectOgg(api.muxOggOpus([packet], 648, 312), 648);
             }
             window.MediaRecorder = NativeRecorder;
             let closed = 0;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BunPro Local Audio Override
 // @namespace    bunpro.local-audio-override.serverless
-// @version      0.6.1.6
+// @version      0.6.1.7
 // @description  Store per-sentence audio overrides in your browser and practise speaking with P-to-record / O-to-review. No local server or upload required.
 // @description:zh-CN  把逐句自定义音频保存在浏览器中，在 BunPro 复习时播放，并通过 P 键录音、O 键回听。无需本地服务，也不会上传音频。
 // @description:zh-TW  把逐句自訂音訊保存在瀏覽器中，在 BunPro 複習時播放，並透過 P 鍵錄音、O 鍵回聽。無需本機服務，也不會上傳音訊。
@@ -44,7 +44,7 @@
         BACKUP_ENTRY_MAX_BYTES: Math.ceil(50 * 1024 * 1024 / 3) * 4 + 1024 * 1024,
         BACKUP_MEMBER_MAX_BYTES: 1024 * 1024,
         IMPORT_BATCH_BYTES: 32 * 1024 * 1024,
-        SCRIPT_VERSION: '0.6.1.6',
+        SCRIPT_VERSION: '0.6.1.7',
         CLEAN_CONFIRM_TIMEOUT_MS: 10000,
         COMPRESSION_START_TIMEOUT_MS: 10000,
         DEFAULT_FALLBACK_RATE: 1.0,
@@ -5633,11 +5633,11 @@
     function muxOggOpus(packets, sampleCount, preSkip) {
         const serial = crypto.getRandomValues(new Uint32Array(1))[0];
         const pages = [];
-        function page(packet, flags, granule) {
-            // A terminating zero lace is required when the packet is a multiple of 255.
-            const segments = Math.floor(packet.length / 255) + 1;
+        function page(pagePackets, flags, granule) {
+            const segments = pagePackets.reduce((sum, packet) => sum + Math.floor(packet.length / 255) + 1, 0);
+            const payloadBytes = pagePackets.reduce((sum, packet) => sum + packet.length, 0);
             if (segments > 255) throw translatedError('compressionEncoderFailed');
-            const bytes = new Uint8Array(27 + segments + packet.length);
+            const bytes = new Uint8Array(27 + segments + payloadBytes);
             const view = new DataView(bytes.buffer);
             bytes.set([79, 103, 103, 83, 0, flags]);
             view.setUint32(6, granule >>> 0, true);
@@ -5645,9 +5645,17 @@
             view.setUint32(14, serial, true);
             view.setUint32(18, pages.length, true);
             bytes[26] = segments;
-            bytes.fill(255, 27, 27 + segments - 1);
-            bytes[27 + segments - 1] = packet.length % 255;
-            bytes.set(packet, 27 + segments);
+            let laceOffset = 27;
+            let payloadOffset = 27 + segments;
+            for (const packet of pagePackets) {
+                const fullSegments = Math.floor(packet.length / 255);
+                bytes.fill(255, laceOffset, laceOffset + fullSegments);
+                laceOffset += fullSegments;
+                // A terminating zero lace is required for exact multiples of 255.
+                bytes[laceOffset++] = packet.length % 255;
+                bytes.set(packet, payloadOffset);
+                payloadOffset += packet.length;
+            }
             let crc = 0;
             for (const byte of bytes) {
                 crc ^= byte << 24;
@@ -5665,24 +5673,41 @@
         head[9] = 1;
         headView.setUint16(10, preSkip, true);
         headView.setUint32(12, 48000, true);
-        page(head, 2, 0);
+        page([head], 2, 0);
         const vendor = new TextEncoder().encode('BunPro Local Audio');
         const tags = new Uint8Array(16 + vendor.length);
         tags.set(new TextEncoder().encode('OpusTags'));
         new DataView(tags.buffer).setUint32(8, vendor.length, true);
         tags.set(vendor, 12);
-        page(tags, 0, 0);
+        page([tags], 0, 0);
         let granule = 0;
+        let pagePackets = [];
+        let pageSegments = 0;
+        let pageSamples = 0;
         if (!packets.length) throw translatedError('compressionEmptyClip');
         for (let index = 0; index < packets.length; index += 1) {
-            granule += opusPacketSamples(packets[index]);
+            const packet = packets[index];
+            const segments = Math.floor(packet.length / 255) + 1;
+            const samples = opusPacketSamples(packet);
+            if (segments > 255) throw translatedError('compressionEncoderFailed');
+            // Keep whole packets together while bounding page overhead and duration.
+            if (pagePackets.length && (pageSegments + segments > 255 || pageSamples + samples > 48000)) {
+                page(pagePackets, 0, granule);
+                pagePackets = [];
+                pageSegments = 0;
+                pageSamples = 0;
+            }
+            pagePackets.push(packet);
+            pageSegments += segments;
+            pageSamples += samples;
+            granule += samples;
             const last = index === packets.length - 1;
             // The last page trims encoder padding without discarding the codec delay.
             if (last && (granule < preSkip + sampleCount
-                || preSkip + sampleCount <= granule - opusPacketSamples(packets[index]))) {
+                || preSkip + sampleCount <= granule - samples)) {
                 throw translatedError('compressionValidationFailed');
             }
-            page(packets[index], last ? 4 : 0, last ? preSkip + sampleCount : granule);
+            if (last) page(pagePackets, 4, preSkip + sampleCount);
         }
         return new Blob(pages, { type: 'audio/ogg;codecs=opus' });
     }

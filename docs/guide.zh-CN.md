@@ -1,4 +1,4 @@
-# BunPro Local Audio Override v0.6.1.6
+# BunPro Local Audio Override v0.6.1.7
 
 > 在浏览器中为 BunPro 句子保存自定义音频，并通过 P 键录音、O 键回听自己的发音。无需 Python、本地服务器或音频上传。
 
@@ -8,7 +8,7 @@
 
 BunPro Local Audio Override 是一个面向 BunPro 复习、Cram 和自学句子的油猴脚本。它可以把一个本地音频文件与当前句子关联，并在之后遇到同一句时，用自定义音频替代 BunPro 的句子音频。
 
-v0.6.1.6 将浏览器存储版的音频管理功能与口语练习录音整合到同一个脚本中：
+v0.6.1.7 将浏览器存储版的音频管理功能与口语练习录音整合到同一个脚本中：
 
 - 自定义音频按句子保存在当前浏览器的 IndexedDB 中。
 - 无需 Python、BAT、后台服务、固定文件路径或网络权限。
@@ -169,10 +169,10 @@ v0.6.1.6 导入会逐条读取并完整校验备份，再分批保存，不再�
 
 把已经保存的逐句覆盖音频批量转换成适合语音练习的 **Opus、单声道、目标 64 kbps** 音频。在 Admin 中点击 **Compress Audio / 压缩音频**，阅读确认提示后开始。
 
-- 压缩完全在当前浏览器中进行，使用浏览器原生编码器；Firefox 使用 Ogg/Opus，Chrome 使用 WebM/Opus。
+- 压缩完全在当前浏览器中进行。支持 WebCodecs Opus 时，Firefox 和 Chrome 均生成 Ogg/Opus，压缩明显快于实时播放；不支持或编码失败时，使用原来的实时压缩方式（Firefox 为 Ogg/Opus，Chrome 为 WebM/Opus）。
 - 不访问麦克风，不上传音频，也不修改原来在磁盘中选择的源文件。
 - 处理对象是 IndexedDB 中持久保存的逐句音频，不包括 P/O 的临时练习录音。
-- 一次处理一条，通常需要接近待压缩音频总时长的时间。请保持页面打开；面板会显示进度、节省空间、跳过和失败的数量。
+- 一次处理一条；使用实时压缩方式时，处理时间通常接近待压缩音频的总时长。请保持页面打开；面板会显示进度、节省空间、跳过和失败的数量。
 - 只有转换结果可以解码，并且体积至少减少 10% 时，才会替换数据库中的原音频。已使用此功能压缩过的音频，以及体积已经足够小的有损音频会跳过。
 - 转换失败或不能节省足够空间时保留原音频。若其他标签页同时修改了某条记录，压缩操作不会覆盖那次修改。
 - 可以取消；已经完成的压缩会保留，尚未处理的音频保持原样。
@@ -230,7 +230,7 @@ Admin 中的自动压缩开关默认关闭，选择会保存在当前浏览器�
 
 ## BunPro 页面兼容性
 
-v0.6.1.6 同时支持：
+v0.6.1.7 同时支持：
 
 - 旧版 `#js-tour-quiz-question`、`#js-tour-quiz-answer` 和 `#js-tour-quiz-pam` 结构；
 - 新版 `#js-quiz .bp-quiz-question` 和 `.bp-quiz-console` 结构。
@@ -252,7 +252,7 @@ v0.6.1.6 同时支持：
 
 ### P/O 出现重复播放或重复录音
 
-打开 Tampermonkey Dashboard，只保留 v0.6.1.6，禁用所有旧版或重复副本，然后完整刷新 BunPro 页面。
+打开 Tampermonkey Dashboard，只保留 v0.6.1.7，禁用所有旧版或重复副本，然后完整刷新 BunPro 页面。
 
 ### 没有本地覆盖时，P 键是否仍可使用
 
@@ -268,7 +268,9 @@ v0.6.1.6 同时支持：
 
 ## English summary for Greasy Fork
 
-**BunPro Local Audio Override v0.6.1.6** stores a custom audio clip for each BunPro cloze sentence in the browser's IndexedDB and plays it through a BunPro-style player. No Python process, localhost service, fixed source path, network permission, or upload is required.
+**BunPro Local Audio Override v0.6.1.7** stores a custom audio clip for each BunPro cloze sentence in the browser's IndexedDB and plays it through a BunPro-style player. No Python process, localhost service, fixed source path, network permission, or upload is required.
+
+New in **0.6.1.7**: with WebCodecs Opus support, compression is much faster than real time and produces Ogg/Opus in both Firefox and Chrome. If unsupported or encoding fails, the previous real-time method is used: Ogg/Opus in Firefox and WebM/Opus in Chrome.
 
 New in **0.6.1.6**: large backups can be imported. Import reads the backup entry by entry instead of as one string, checks every entry before saving anything, shows checking and saving progress, and reports how many entries were saved if it stops part-way. The `.bpao` format is unchanged.
 
@@ -284,10 +286,10 @@ Press **P** to play the current reference audio and, when recording is enabled, 
 
 The Admin view can export all saved overrides to a portable `.bpao` file, import only new sentences, import and replace existing sentences, verify SHA-256 checksums, show database statistics, or clean the database with a two-step confirmation.
 
-New in **0.6.1.1**: **Admin → Compress Audio** converts saved sentence audio locally to mono Opus at a target 64 kbps, using Ogg in Firefox and WebM in Chrome. It does not use the microphone, upload audio, or include temporary P/O recordings. Clips are processed one at a time, with progress and space savings shown. Only decodable results at least 10% smaller replace the original database audio; already compressed or sufficiently small lossy clips are skipped, and failures keep the original. You can cancel and retain completed results. Compression is lossy, so export a backup first. Your original source files on disk are not changed.
+**Admin → Compress Audio**, introduced in **0.6.1.1**, converts saved sentence audio locally to mono Opus at a target 64 kbps. It does not use the microphone, upload audio, or include temporary P/O recordings. Clips are processed one at a time, with progress and space savings shown. Only decodable results at least 10% smaller replace the original database audio; already compressed or sufficiently small lossy clips are skipped, and failures keep the original. You can cancel and retain completed results. Compression is lossy, so export a backup first. Your original source files on disk are not changed.
 
 An optional **automatic compression** setting applies the same process to newly selected clips on Save and incoming clips on Import or Import & Replace. It is off by default and remembers your choice. Only clips that will actually be written are processed; turning it on does not recompress the existing library. If compression fails or saves too little space, the original incoming audio is used. Disable this setting before importing a backup if you want to restore its original audio bytes exactly.
 
 There is no 512 MiB whole-backup cap. Import reads and validates entries without loading the whole file into one string, then saves clips in batches with checking and saving progress. If import stops, the message reports how many entries were saved; import the same file again with the same button to finish. Export also builds the backup entry by entry. The `.bpao` format is unchanged. The 50 MiB per-clip limit, available memory, disk space and browser storage quota determine practical capacity.
 
-Version 0.6.1.6 retains support for both legacy and September 2026 BunPro review layouts. It also tracks BunPro audio objects that Firefox keeps outside the DOM, allowing local overrides to follow BunPro playback rates such as 75% and 85%. The 0.6.1 fix is retained: after an O-key recording review ends naturally, the next P press starts a new playback-and-recording cycle immediately. Disable every older or duplicate copy of the script before use.
+Version 0.6.1.7 retains support for both legacy and September 2026 BunPro review layouts. It also tracks BunPro audio objects that Firefox keeps outside the DOM, allowing local overrides to follow BunPro playback rates such as 75% and 85%. The 0.6.1 fix is retained: after an O-key recording review ends naturally, the next P press starts a new playback-and-recording cycle immediately. Disable every older or duplicate copy of the script before use.
