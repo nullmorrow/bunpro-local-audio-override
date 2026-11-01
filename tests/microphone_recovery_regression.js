@@ -63,7 +63,7 @@ window.runMicrophoneRecoveryRegression = async () => {
     async function reset() {
         state.pHotkeyGeneration++;
         state.pPlaybackStartPending = false;
-        state.pRouteOwner = '';
+        state.pRoute.owner = '';
         api.clearNativePIntent();
         api.releaseRecordingResources();
         api.setRecordingEnabled(true);

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Isolated BunPro hotkey regression</title>
+<body tabindex="0">
+<div id="quiz-metadata-element" data-meta-is-correct="true" data-meta-is-post-attempt="true"
+     data-meta-is-loading="false" data-meta-question-mode="cloze"></div>
+<div id="js-quiz">
+    <div id="js-tour-quiz-question"><div class="QuestionSentenceQuestionCloze"><div class="text-center">hotkey sentence</div></div></div>
+    <div id="js-tour-quiz-answer"><button id="native-answer" title="Play audio"><svg data-name="PLAY_CIRCLE_FILLED"><path></path></svg></button></div>
+    <div id="native-player">
+        <button id="native-play"><svg data-name="PLAY_ARROW"><path></path></svg></button>
+        <div role="progressbar"></div>
+        <button><svg data-name="SETTINGS"><path></path></svg></button>
+    </div>
+    <div id="js-tour-quiz-pam">Synthetic toolbar</div>
+</div>
+<script>
+    window.nativeKeys = [];
+    window.capturedKeys = [];
+    window.nativeClicks = [];
+    window.addEventListener('keydown', event => {
+        if (event.code === 'KeyP') capturedKeys.push(event);
+    }, true);
+    document.addEventListener('keydown', event => {
+        if (event.code === 'KeyP') nativeKeys.push(event);
+    });
+    document.addEventListener('click', event => nativeClicks.push(event));
+    // The production play hook wraps this boundary, so detached tracking stays real.
+    HTMLMediaElement.prototype.play = function () {
+        return this.testPlay ? this.testPlay() : Promise.resolve();
+    };
+    navigator.mediaDevices.getUserMedia = async () => {
+        throw new Error('Physical microphone forbidden in hotkey fixture');
+    };
+</script>
+</body></html>

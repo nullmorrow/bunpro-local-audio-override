@@ -899,12 +899,14 @@
 
         pHotkeyGeneration: 0,
         pPlaybackStartPending: false,
-        pRouteOwner: '',
-        nativePIntentActive: false,
-        nativePIntentStartedAt: 0,
-        nativePStopGuardUntil: 0,
-        nativePClickPassthroughGeneration: 0,
-        nativePClickPassthroughTimer: 0,
+        pRoute: {
+            owner: '',
+            intentActive: false,
+            intentStartedAt: 0,
+            stopGuardUntil: 0,
+            clickPassthroughGeneration: 0,
+            clickPassthroughTimer: 0,
+        },
         panelPositionScheduled: false,
         syntheticPlayButton: null,
 
@@ -2387,7 +2389,7 @@
         if (isDebugEnabled() && isLocalAudioPlaying()) {
             debug('stopLocalAudio while playing', reason || 'unspecified', {
                 currentTime: state.audio?.currentTime,
-                pRouteOwner: state.pRouteOwner,
+                pRoute: getPRouteOwner(),
                 eligible: state.eligible,
             });
         }
@@ -2434,9 +2436,7 @@
     function resetForSentence(sentence) {
         state.pHotkeyGeneration += 1;
         state.pPlaybackStartPending = false;
-        state.pRouteOwner = '';
-        clearNativePIntent();
-        state.nativePStopGuardUntil = 0;
+        releasePRoute({ resetNative: true });
         clearNativePClickPassthrough();
         void stopVoiceRecording({ discard: false });
         cancelRecordedAudioPlayback();
@@ -2775,47 +2775,96 @@
         });
     }
 
+    function getPRouteOwner() {
+        return state.pRoute.owner;
+    }
+
+    function isLocalPRoute() {
+        return getPRouteOwner() === 'local';
+    }
+
+    function isNativePRoute() {
+        return getPRouteOwner().startsWith('native');
+    }
+
+    function isNativePStopRoute() {
+        return getPRouteOwner() === 'native-stopping';
+    }
+
+    function hasNativePClickPassthrough() {
+        return Boolean(state.pRoute.clickPassthroughGeneration);
+    }
+
+    /*
+     * P routes: idle ('') -> local for a ready override, or native for the real
+     * BunPro keydown; native -> native-stopping on the next P. Local includes
+     * pending preparation (pPlaybackStartPending); a second P, failed start or
+     * local ended releases it. O and sentence changes release all route state;
+     * deleting an override releases ownership. Native intent expires on terminal
+     * media events or after its grace period; stopping releases on click expiry.
+     * A loading lookup uses native for that press: taking over would require
+     * intercepting or delaying BunPro's real P keydown.
+     * The intent grace lets React's icon and real media settle in either order.
+     * The ended guard and captured action/timestamp protect a new intent from
+     * stale terminal events. The stop guard prevents still-playing media from
+     * restarting intent during stop-then-restart races, even after route release.
+     * Click passthrough lets BunPro's own follow-up click handle the same P.
+     */
+    function releasePRoute({ resetNative = false } = {}) {
+        state.pRoute.owner = '';
+        if (resetNative) {
+            clearNativePIntent();
+            state.pRoute.stopGuardUntil = 0;
+        }
+    }
+
+    function beginLocalPRoute() {
+        clearNativePClickPassthrough();
+        state.pRoute.stopGuardUntil = 0;
+        state.pRoute.owner = 'local';
+    }
+
     function clearNativePIntent() {
-        state.nativePIntentActive = false;
-        state.nativePIntentStartedAt = 0;
-        if (state.pRouteOwner === 'native') state.pRouteOwner = '';
+        state.pRoute.intentActive = false;
+        state.pRoute.intentStartedAt = 0;
+        if (getPRouteOwner() === 'native') releasePRoute();
     }
 
     function markNativePIntent() {
-        state.pRouteOwner = 'native';
-        state.nativePIntentActive = true;
-        state.nativePIntentStartedAt = performance.now();
-        state.nativePStopGuardUntil = 0;
+        state.pRoute.owner = 'native';
+        state.pRoute.intentActive = true;
+        state.pRoute.intentStartedAt = performance.now();
+        state.pRoute.stopGuardUntil = 0;
     }
 
     function markNativePStop() {
         clearNativePIntent();
-        state.pRouteOwner = 'native-stopping';
-        state.nativePStopGuardUntil = performance.now() + NATIVE_P_STOP_GUARD_MS;
+        state.pRoute.owner = 'native-stopping';
+        state.pRoute.stopGuardUntil = performance.now() + NATIVE_P_STOP_GUARD_MS;
     }
 
     function clearNativePClickPassthrough(generation = null) {
         if (
             generation !== null &&
-            state.nativePClickPassthroughGeneration !== generation
+            state.pRoute.clickPassthroughGeneration !== generation
         ) {
             return;
         }
-        if (state.nativePClickPassthroughTimer) {
-            window.clearTimeout(state.nativePClickPassthroughTimer);
+        if (state.pRoute.clickPassthroughTimer) {
+            window.clearTimeout(state.pRoute.clickPassthroughTimer);
         }
-        state.nativePClickPassthroughGeneration = 0;
-        state.nativePClickPassthroughTimer = 0;
+        state.pRoute.clickPassthroughGeneration = 0;
+        state.pRoute.clickPassthroughTimer = 0;
     }
 
     function armNativePClickPassthrough(generation) {
         clearNativePClickPassthrough();
-        state.nativePClickPassthroughGeneration = generation;
-        state.nativePClickPassthroughTimer = window.setTimeout(() => {
-            const releaseStoppingRoute = state.pRouteOwner === 'native-stopping';
+        state.pRoute.clickPassthroughGeneration = generation;
+        state.pRoute.clickPassthroughTimer = window.setTimeout(() => {
+            const releaseStoppingRoute = isNativePStopRoute();
             clearNativePClickPassthrough(generation);
             if (releaseStoppingRoute) {
-                state.pRouteOwner = '';
+                releasePRoute();
                 scheduleSync();
             }
         }, NATIVE_P_CLICK_PASSTHROUGH_MS);
@@ -2824,11 +2873,11 @@
     function isNativePIntentActive() {
         const nativeMediaActive = isPageMediaPlaying();
         const nativeUiActive = isNativeBunproAudioPlaying();
-        if (state.nativePIntentActive && state.pRouteOwner === 'native') {
+        if (state.pRoute.intentActive && getPRouteOwner() === 'native') {
             // During a native P cycle, the real media state and BunPro's React icon
             // may settle in either order. Keep accepting both while the intent is ours.
             if (nativeMediaActive || nativeUiActive) return true;
-            const age = performance.now() - state.nativePIntentStartedAt;
+            const age = performance.now() - state.pRoute.intentStartedAt;
             if (age <= NATIVE_P_INTENT_GRACE_MS) return true;
             clearNativePIntent();
             return false;
@@ -2839,8 +2888,8 @@
             // O finishes reviewing a recording, BunPro can leave that icon visible and
             // the next P would otherwise be misclassified as a stop-only press.
             nativeMediaActive &&
-            state.pRouteOwner !== 'local' &&
-            performance.now() >= state.nativePStopGuardUntil
+            !isLocalPRoute() &&
+            performance.now() >= state.pRoute.stopGuardUntil
         ) {
             markNativePIntent();
             return true;
@@ -2848,34 +2897,38 @@
         return false;
     }
 
-    function onBunproPageMediaStateChanged(event) {
-        if (!isBunproPageMediaElement(event.target)) return;
-        if (!['ended', 'error', 'abort', 'emptied'].includes(event.type)) return;
+    function expireNativePIntent() {
         const terminalGeneration = state.pHotkeyGeneration;
-        const terminalIntentStartedAt = state.nativePIntentStartedAt;
+        const terminalIntentStartedAt = state.pRoute.intentStartedAt;
         window.setTimeout(() => {
-            // capture 阶段 BunPro/React 的暂停图标可能还没刷新，下一 task 再确认。
-            // 只信真实媒体状态；旧 terminal 事件也不能清掉随后一次 P 的新 intent。
+            // Wait one task for media to settle; a React icon may still be stale.
+            // Only real media and the captured intent can authorize this release.
             if (state.pHotkeyGeneration !== terminalGeneration) return;
-            if (state.pRouteOwner === 'local') return;
+            if (isLocalPRoute()) return;
             if (
-                state.nativePIntentActive &&
-                state.nativePIntentStartedAt !== terminalIntentStartedAt
+                state.pRoute.intentActive &&
+                state.pRoute.intentStartedAt !== terminalIntentStartedAt
             ) {
                 return;
             }
             if (isPageMediaPlaying()) return;
             if (
-                state.nativePIntentActive &&
-                performance.now() - state.nativePIntentStartedAt < NATIVE_P_ENDED_GUARD_MS
+                state.pRoute.intentActive &&
+                performance.now() - state.pRoute.intentStartedAt < NATIVE_P_ENDED_GUARD_MS
             ) {
                 return;
             }
-            const nativeStopInProgress = state.pRouteOwner === 'native-stopping';
+            const nativeStopInProgress = isNativePStopRoute();
             clearNativePIntent();
-            if (!nativeStopInProgress) state.nativePStopGuardUntil = 0;
+            if (!nativeStopInProgress) state.pRoute.stopGuardUntil = 0;
             scheduleSync();
         }, 0);
+    }
+
+    function onBunproPageMediaStateChanged(event) {
+        if (!isBunproPageMediaElement(event.target)) return;
+        if (!['ended', 'error', 'abort', 'emptied'].includes(event.type)) return;
+        expireNativePIntent();
     }
 
     function stopMediaStream(stream) {
@@ -3906,7 +3959,7 @@
             state.audio.addEventListener('ratechange', refreshState);
             state.audio.addEventListener('timeupdate', paintLocalPlayerProgress);
             state.audio.addEventListener('ended', () => {
-                if (state.pRouteOwner === 'local') state.pRouteOwner = '';
+                if (isLocalPRoute()) releasePRoute();
                 stopPlayerAnimation();
                 refreshState();
             });
@@ -4299,7 +4352,7 @@
             state.lookupStatus === 'ready' &&
             state.overrideFound &&
             state.entry &&
-            !state.pRouteOwner.startsWith('native')
+            !isNativePRoute()
         );
         if (!active) {
             restoreControlledAnswerButton();
@@ -4632,7 +4685,7 @@
             state.lookupStatus === 'ready' &&
             state.overrideFound &&
             state.entry &&
-            !state.pRouteOwner.startsWith('native')
+            !isNativePRoute()
         );
         if (!active) return;
 
@@ -4825,7 +4878,7 @@
             state.lookupStatus === 'ready' &&
             state.overrideFound &&
             state.entry &&
-            !state.pRouteOwner.startsWith('native')
+            !isNativePRoute()
         );
         if (!active) {
             if (
@@ -4971,10 +5024,10 @@
             if (generation === state.pHotkeyGeneration) {
                 state.pPlaybackStartPending = false;
                 if (
-                    state.pRouteOwner === 'local' &&
+                    isLocalPRoute() &&
                     !isLocalAudioPlaying()
                 ) {
-                    state.pRouteOwner = '';
+                    releasePRoute();
                 }
             }
         }
@@ -5014,10 +5067,8 @@
             const pPlaybackWasPending = state.pPlaybackStartPending;
             state.pHotkeyGeneration += 1;
             state.pPlaybackStartPending = false;
-            clearNativePIntent();
-            state.nativePStopGuardUntil = 0;
+            releasePRoute({ resetNative: true });
             clearNativePClickPassthrough();
-            state.pRouteOwner = '';
             blockEvent(event);
             if (!hasRecordingActivity() && !pPlaybackWasPending) {
                 showRecordingStatus(isRecordingEnabled() ? 'recordingEmpty' : 'recordingDisabled');
@@ -5050,9 +5101,7 @@
         cancelRecordedAudioPlayback();
 
         if (localPlaybackWasActive || localPStartWasPending) {
-            state.pRouteOwner = '';
-            clearNativePIntent();
-            state.nativePStopGuardUntil = 0;
+            releasePRoute({ resetNative: true });
             blockEvent(event);
             void stopVoiceRecording({ discard: false });
             stopLocalAudio();
@@ -5064,7 +5113,7 @@
             armNativePClickPassthrough(generation);
             void stopVoiceRecording({ discard: false });
             schedulePanelPositionAfterAudioUiChange();
-            // BunPro 必须收到同一个、受信任的 P 事件，由它自行停止并归零。
+            // BunPro must receive this same trusted P to stop and reset its audio.
             return;
         }
 
@@ -5075,9 +5124,7 @@
         );
         if (canStartVoiceRecording() && getRecordingGain() > 1) primeRecordingCaptureContext();
         if (useLocalOverride) {
-            clearNativePClickPassthrough();
-            state.nativePStopGuardUntil = 0;
-            state.pRouteOwner = 'local';
+            beginLocalPRoute();
             blockEvent(event);
             state.pPlaybackStartPending = true;
             const sentenceAtPress = state.normalizedSentence;
@@ -5085,8 +5132,8 @@
             return;
         }
 
-        // 原音路径只做录音 sidecar。不要拦截、延迟或程序化重放 P；
-        // BunPro 始终直接收到用户本次真实的键盘事件。
+        // Recording is only a sidecar: BunPro needs the user's original keydown
+        // directly, without interception, delay or a synthetic replacement.
         markNativePIntent();
         armNativePClickPassthrough(generation);
         void restartVoiceRecording();
@@ -5111,7 +5158,7 @@
         if (state.bypassClick) return;
         const button = event.target?.closest?.('button');
         if (
-            state.nativePClickPassthroughGeneration &&
+            hasNativePClickPassthrough() &&
             isNativeAudioControl(button)
         ) {
             return;
@@ -6262,7 +6309,7 @@
             state.lookupError = null;
             state.overrideFound = false;
             state.entry = null;
-            state.pRouteOwner = '';
+            releasePRoute();
             setPanelMessage('deleted');
         } catch (error) {
             state.lookupError = error.translation || { key: null, vars: { error: error.message } };
