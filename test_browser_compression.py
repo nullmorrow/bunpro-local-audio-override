@@ -57,16 +57,28 @@ def main():
                 scanBackupFile, readBackupEntry, dbReplaceCompressed, setRecordingEnabled, setUiLanguage,
                 ensurePanelPlacement, positionPanel, showRecordingError, showRecordingStatus, renderMessage,
                 isAutoCompressionEnabled, setAutoCompressionEnabled, saveOverride, handleImport,
-                dbPutMany, handleSave};
+                dbPutMany, handleSave, encodeSpeechOpus, createCompressionContext, muxOggOpus};
         ''')
+        probe = driver.execute_async_script("""const done = arguments[0];
+            (async () => ({exists: typeof AudioEncoder === 'function',
+                supported: typeof AudioEncoder === 'function' && (await AudioEncoder.isConfigSupported({
+                    codec:'opus',sampleRate:48000,numberOfChannels:1,bitrate:64000})).supported}))()
+                .then(done, error => done({error:String(error)}));""")
+        print(json.dumps({'webCodecsProbe':probe}, ensure_ascii=False), flush=True)
         driver.execute_script(script)
         driver.execute_script((root / 'tests/compression_regression.js').read_text(encoding='utf-8'))
         driver.execute_script('''document.querySelector('#run').onclick = () => {
-            runCompressionRegression().then(result => window.testResult = {ok:true, ...result})
-                .catch(error => window.testResult = {ok:false, error:error.stack || String(error)});
+            const nativeEncoder = window.AudioEncoder;
+            window.AudioEncoder = undefined;
+            runCompressionRegression().finally(() => { window.AudioEncoder = nativeEncoder; })
+                .then(async result => {
+                    const webCodecs = await runWebCodecsRegression();
+                    window.testResult = {ok:true, ...result, webCodecs,
+                        checks:[...result.checks, ...webCodecs.checks]};
+                }).catch(error => window.testResult = {ok:false, error:error.stack || String(error)});
         };''')
         driver.find_element(By.ID, 'run').click()
-        result = WebDriverWait(driver, 60).until(lambda d: d.execute_script('return window.testResult || null'))
+        result = WebDriverWait(driver, 90).until(lambda d: d.execute_script('return window.testResult || null'))
         if result.get('ok'):
             validate_native_opus_backup(driver.execute_script('return window.compressedBackupForMigration'))
             result['checks'].append('Native Opus backup has valid v1 format, SHA-256 checksums and Ogg/WebM containers')

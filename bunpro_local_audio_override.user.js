@@ -5613,18 +5613,145 @@
         renderPanel();
     }
 
-    // Speech compression is deliberately local: this graph has no speaker output
-    // and never asks for microphone access. MediaRecorder runs at normal speed.
+    async function supportsWebCodecsOpus() {
+        if (typeof AudioEncoder !== 'function' || typeof AudioData !== 'function') return false;
+        const support = await AudioEncoder.isConfigSupported({
+            codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 64000,
+        });
+        return support.supported;
+    }
+
+    function opusPacketSamples(packet) {
+        const config = packet[0] >> 3;
+        const frameSamples = config >= 16 ? 120 << (config & 3)
+            : config >= 12 ? 480 << (config & 1)
+                : (config & 3) === 3 ? 2880 : 480 << (config & 3);
+        const code = packet[0] & 3;
+        return frameSamples * (code === 0 ? 1 : code === 3 ? packet[1] & 63 : 2);
+    }
+
+    function muxOggOpus(packets, sampleCount, preSkip) {
+        const serial = crypto.getRandomValues(new Uint32Array(1))[0];
+        const pages = [];
+        function page(packet, flags, granule) {
+            // A terminating zero lace is required when the packet is a multiple of 255.
+            const segments = Math.floor(packet.length / 255) + 1;
+            if (segments > 255) throw translatedError('compressionEncoderFailed');
+            const bytes = new Uint8Array(27 + segments + packet.length);
+            const view = new DataView(bytes.buffer);
+            bytes.set([79, 103, 103, 83, 0, flags]);
+            view.setUint32(6, granule >>> 0, true);
+            view.setUint32(10, Math.floor(granule / 4294967296), true);
+            view.setUint32(14, serial, true);
+            view.setUint32(18, pages.length, true);
+            bytes[26] = segments;
+            bytes.fill(255, 27, 27 + segments - 1);
+            bytes[27 + segments - 1] = packet.length % 255;
+            bytes.set(packet, 27 + segments);
+            let crc = 0;
+            for (const byte of bytes) {
+                crc ^= byte << 24;
+                for (let bit = 0; bit < 8; bit += 1) {
+                    crc = (crc << 1) ^ ((crc & 0x80000000) ? 0x04c11db7 : 0);
+                }
+            }
+            view.setUint32(22, crc >>> 0, true);
+            pages.push(bytes);
+        }
+        const head = new Uint8Array(19);
+        head.set(new TextEncoder().encode('OpusHead'));
+        const headView = new DataView(head.buffer);
+        head[8] = 1;
+        head[9] = 1;
+        headView.setUint16(10, preSkip, true);
+        headView.setUint32(12, 48000, true);
+        page(head, 2, 0);
+        const vendor = new TextEncoder().encode('BunPro Local Audio');
+        const tags = new Uint8Array(16 + vendor.length);
+        tags.set(new TextEncoder().encode('OpusTags'));
+        new DataView(tags.buffer).setUint32(8, vendor.length, true);
+        tags.set(vendor, 12);
+        page(tags, 0, 0);
+        let granule = 0;
+        if (!packets.length) throw translatedError('compressionEmptyClip');
+        for (let index = 0; index < packets.length; index += 1) {
+            granule += opusPacketSamples(packets[index]);
+            const last = index === packets.length - 1;
+            // The last page trims encoder padding without discarding the codec delay.
+            if (last && (granule < preSkip + sampleCount
+                || preSkip + sampleCount <= granule - opusPacketSamples(packets[index]))) {
+                throw translatedError('compressionValidationFailed');
+            }
+            page(packets[index], last ? 4 : 0, last ? preSkip + sampleCount : granule);
+        }
+        return new Blob(pages, { type: 'audio/ogg;codecs=opus' });
+    }
+
+    async function encodeWebCodecsOpus(mono, job, awaitOrAbort, checkCancelled) {
+        const packets = [];
+        let preSkip = 312;
+        let encoderError;
+        let encoder;
+        const previousAbort = job.abortCurrent;
+        const closeEncoder = () => {
+            if (encoder && encoder.state !== 'closed') encoder.close();
+        };
+        const abort = () => {
+            previousAbort();
+            closeEncoder();
+        };
+        job.abortCurrent = abort;
+        try {
+            encoder = new AudioEncoder({
+                output: (chunk, metadata) => {
+                    const packet = new Uint8Array(chunk.byteLength);
+                    chunk.copyTo(packet);
+                    packets.push(packet);
+                    const description = metadata?.decoderConfig?.description;
+                    if (description) {
+                        const bytes = ArrayBuffer.isView(description)
+                            ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+                            : new Uint8Array(description);
+                        if (bytes.length >= 19 && new TextDecoder().decode(bytes.subarray(0, 8)) === 'OpusHead') {
+                            preSkip = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(10, true);
+                        }
+                    }
+                },
+                error: (error) => { encoderError = error; },
+            });
+            encoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 64000 });
+            const samples = mono.getChannelData(0);
+            for (let offset = 0; offset < samples.length; offset += 960) {
+                checkCancelled();
+                if (encoderError) throw encoderError;
+                const data = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfChannels: 1,
+                    numberOfFrames: Math.min(960, samples.length - offset),
+                    timestamp: Math.round(offset * 1000000 / 48000), data: samples.subarray(offset, offset + 960) });
+                try { encoder.encode(data); } finally { data.close(); }
+                // Bound queued PCM and yield to Cancel even when encoding runs off-thread.
+                if (offset % (960 * 16) === 0 || encoder.encodeQueueSize > 16) {
+                    do {
+                        await awaitOrAbort(new Promise(resolve => setTimeout(resolve, 0)));
+                        checkCancelled();
+                        if (encoderError) throw encoderError;
+                    } while (encoder.encodeQueueSize > 16);
+                }
+            }
+            await awaitOrAbort(encoder.flush());
+            checkCancelled();
+            if (encoderError) throw encoderError;
+            return muxOggOpus(packets, mono.length, preSkip);
+        } finally {
+            closeEncoder();
+            if (job.abortCurrent === abort) job.abortCurrent = previousAbort;
+        }
+    }
+
+    // Both encoders stay local and never connect to a speaker or microphone.
     async function encodeSpeechOpus(blob, audioContext, job) {
         const abortError = () => new DOMException(t('compressionAbort'), 'AbortError');
         const checkCancelled = () => { if (job.cancelled) throw abortError(); };
         checkCancelled();
-        if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
-            throw translatedError('compressionRecorderUnavailable');
-        }
-        const mimeType = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
-            .find((type) => MediaRecorder.isTypeSupported(type));
-        if (!mimeType) throw translatedError('compressionEncoderUnavailable');
         if (!audioContext || audioContext.state === 'closed') {
             throw translatedError('compressionContextUnavailable');
         }
@@ -5677,6 +5804,42 @@
                 }
             }
             checkCancelled();
+            async function validate(encoded) {
+                if (!encoded.size) throw translatedError('compressionEmptyClip');
+                const verification = await awaitOrAbort(audioContext.decodeAudioData(await awaitOrAbort(encoded.arrayBuffer())));
+                checkCancelled();
+                // Keep the same decode gate for both container/encoder paths.
+                if (verification.numberOfChannels !== 1
+                    || !Number.isFinite(verification.duration)
+                    || verification.duration < duration - 0.08
+                    || verification.duration > duration + 0.65) {
+                    throw translatedError('compressionValidationFailed');
+                }
+                return {
+                    blob: encoded,
+                    mimeType: encoded.type,
+                    extension: /ogg/i.test(encoded.type) ? '.ogg' : '.webm',
+                    duration: verification.duration,
+                };
+            }
+            try {
+                if (await awaitOrAbort(supportsWebCodecsOpus())) {
+                    checkCancelled();
+                    return await validate(await encodeWebCodecsOpus(mono, job, awaitOrAbort, checkCancelled));
+                }
+                console.warn('[BunPro Local Audio] WebCodecs Opus unavailable; using MediaRecorder.');
+            } catch (error) {
+                checkCancelled();
+                if (error?.name === 'AbortError') throw error;
+                console.warn('[BunPro Local Audio] WebCodecs Opus failed; using MediaRecorder:', error);
+            }
+            checkCancelled();
+            if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
+                throw translatedError('compressionRecorderUnavailable');
+            }
+            const mimeType = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
+                .find((type) => MediaRecorder.isTypeSupported(type));
+            if (!mimeType) throw translatedError('compressionEncoderUnavailable');
             destination = audioContext.createMediaStreamDestination();
             destination.channelCount = 1;
             destination.channelCountMode = 'explicit';
@@ -5734,24 +5897,7 @@
                 } catch (error) { fail(error); }
             }));
             checkCancelled();
-            if (!encoded.size) throw translatedError('compressionEmptyClip');
-            const verification = await awaitOrAbort(audioContext.decodeAudioData(await awaitOrAbort(encoded.arrayBuffer())));
-            checkCancelled();
-            // Decode the result before allowing the owner to replace any record.
-            // Reject truncated, stretched, or unexpected stereo output. Padding
-            // allowance covers Opus framing and the short safety lead/tail above.
-            if (verification.numberOfChannels !== 1
-                || !Number.isFinite(verification.duration)
-                || verification.duration < duration - 0.08
-                || verification.duration > duration + 0.65) {
-                throw translatedError('compressionValidationFailed');
-            }
-            return {
-                blob: encoded,
-                mimeType: encoded.type || mimeType,
-                extension: /ogg/i.test(encoded.type || mimeType) ? '.ogg' : '.webm',
-                duration: verification.duration,
-            };
+            return await validate(encoded);
         } finally {
             clearTimeout(tailTimer);
             clearTimeout(watchdog);
@@ -5782,8 +5928,9 @@
 
     function createCompressionContext() {
         const Context = window.AudioContext || window.webkitAudioContext;
-        if (!Context || !window.MediaRecorder || !['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
-            .some((mime) => MediaRecorder.isTypeSupported(mime))) {
+        if (!Context || (typeof AudioEncoder !== 'function' && (!window.MediaRecorder
+            || !['audio/ogg;codecs=opus', 'audio/webm;codecs=opus']
+                .some((mime) => MediaRecorder.isTypeSupported(mime))))) {
             throw new Error('This browser does not support native Opus encoding.');
         }
         return new Context({ sampleRate: 48000 });

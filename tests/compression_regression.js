@@ -279,3 +279,207 @@ window.runCompressionRegression = async function () {
     return { checks, summary, inputBytes:original.blob.size, outputBytes:compressed.blob.size,
         mime:compressed.mimeType, duration:decoded.duration, rms };
 };
+
+// Exercise the accelerated path separately so the existing real-time race checks
+// keep their original scheduling and remain portable to the private test copy.
+window.runWebCodecsRegression = async function () {
+    const api = window.__compressionTest;
+    const checks = [];
+    const check = (condition, message) => { if (!condition) throw new Error(message); checks.push(message); };
+    const NativeEncoder = window.AudioEncoder;
+    const NativeRecorder = window.MediaRecorder;
+    const nativeDataClose = window.AudioData?.prototype.close;
+    const supported = typeof NativeEncoder === 'function' && typeof AudioData === 'function' && (await NativeEncoder.isConfigSupported({
+        codec:'opus', sampleRate:48000, numberOfChannels:1, bitrate:64000 })).supported;
+    const context = api.createCompressionContext();
+    await context.resume();
+    function wav(sampleCount) {
+        const bytes = new ArrayBuffer(44 + sampleCount * 2);
+        const view = new DataView(bytes);
+        const text = (offset, value) => [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+        text(0, 'RIFF'); view.setUint32(4, bytes.byteLength - 8, true); text(8, 'WAVE'); text(12, 'fmt ');
+        view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+        view.setUint32(24, 48000, true); view.setUint32(28, 96000, true);
+        view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, 'data');
+        view.setUint32(40, sampleCount * 2, true);
+        for (let i = 0; i < sampleCount; i++) view.setInt16(44 + i * 2, 12000 * Math.sin(i * 2 * Math.PI * 440 / 48000), true);
+        return new Blob([bytes], {type:'audio/wav'});
+    }
+    async function inspectOgg(blob, count) {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const view = new DataView(bytes.buffer);
+        let offset = 0;
+        let sequence = 0;
+        let serial;
+        let preSkip;
+        let finalGranule;
+        let previousGranule = 0;
+        const crcTable = Array.from({length:256}, (_, byte) => {
+            let remainder = BigInt(byte) << 24n;
+            for (let bit = 0; bit < 8; bit++) {
+                remainder = ((remainder << 1n) ^ ((remainder & 0x80000000n) ? 0x04c11db7n : 0n)) & 0xffffffffn;
+            }
+            return Number(remainder);
+        });
+        while (offset < bytes.length) {
+            const segments = bytes[offset + 26];
+            let payload = 0;
+            for (let i = 0; i < segments; i++) payload += bytes[offset + 27 + i];
+            const length = 27 + segments + payload;
+            if (offset + length > bytes.length) throw new Error('Ogg page overrun');
+            const page = bytes.slice(offset, offset + length);
+            const pageView = new DataView(page.buffer);
+            if (new TextDecoder().decode(page.subarray(0, 4)) !== 'OggS' || page[4] !== 0) throw new Error('Bad Ogg capture/version');
+            if (pageView.getUint32(18, true) !== sequence) throw new Error('Bad Ogg sequence');
+            if (sequence === 0) serial = pageView.getUint32(14, true);
+            if (serial !== pageView.getUint32(14, true)) throw new Error('Ogg serial changed');
+            const expectedCrc = pageView.getUint32(22, true);
+            page.fill(0, 22, 26);
+            // Verify with a BigInt-derived byte lookup rather than the muxer's bit loop.
+            let crc = 0;
+            for (const byte of page) crc = ((crc << 8) ^ crcTable[(crc >>> 24) ^ byte]) >>> 0;
+            if (crc !== expectedCrc) throw new Error('Bad Ogg CRC');
+            const granule = view.getUint32(offset + 6, true) + view.getUint32(offset + 10, true) * 4294967296;
+            if (granule < previousGranule) throw new Error('Non-monotonic Ogg granule');
+            previousGranule = granule;
+            if (sequence === 0) {
+                if (page[5] !== 2 || payload !== 19 || page[27 + segments + 9] !== 1) throw new Error('Bad OpusHead/BOS');
+                preSkip = view.getUint16(offset + 27 + segments + 10, true);
+            } else if (sequence === 1 && new TextDecoder().decode(page.subarray(27 + segments, 35 + segments)) !== 'OpusTags') {
+                throw new Error('Missing OpusTags');
+            }
+            if ((page[5] & 4) !== 0) {
+                if (offset + length !== bytes.length) throw new Error('Early EOS');
+                finalGranule = granule;
+            }
+            if (page[27 + segments - 1] === 255) throw new Error('Unterminated packet');
+            offset += length;
+            sequence++;
+        }
+        check(sequence >= 3 && finalGranule === preSkip + count, 'Ogg CRC, sequence, BOS/EOS and exact final granule: ' + count + ' samples');
+        return {preSkip, finalGranule, pages:sequence};
+    }
+    let ratio = null;
+    let ogg = null;
+    try {
+        api.setUiLanguage('en');
+        if (supported) {
+            // Successful encoding with MediaRecorder absent proves path selection.
+            window.MediaRecorder = undefined;
+            const onlyWebCodecsContext = api.createCompressionContext();
+            await onlyWebCodecsContext.close();
+            const count = 198577;
+            let submitted = 0;
+            let closedData = 0;
+            let closedEncoders = 0;
+            AudioData.prototype.close = function () { closedData++; return nativeDataClose.call(this); };
+            window.AudioEncoder = class extends NativeEncoder {
+                encode(data) { submitted++; super.encode(data); }
+                close() { closedEncoders++; super.close(); }
+            };
+            const started = performance.now();
+            const encoded = await api.encodeSpeechOpus(wav(count), context, {cancelled:false});
+            ratio = (performance.now() - started) / (count / 48);
+            AudioData.prototype.close = nativeDataClose;
+            window.AudioEncoder = NativeEncoder;
+            check(submitted > 0 && submitted === closedData && closedEncoders === 1,
+                'Successful WebCodecs encoding closes every AudioData and its AudioEncoder');
+            check(encoded.mimeType === 'audio/ogg;codecs=opus' && encoded.extension === '.ogg', 'WebCodecs produces Ogg Opus without MediaRecorder');
+            const decoded = await context.decodeAudioData(await encoded.blob.arrayBuffer());
+            const samples = decoded.getChannelData(0);
+            const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+            check(decoded.numberOfChannels === 1 && Math.abs(decoded.duration - count / 48000) < .02 && rms > .03,
+                'WebCodecs output decodes as audible mono with exact duration');
+            check(ratio < .5, 'WebCodecs several-second encoding is clearly faster than real time');
+            ogg = await inspectOgg(encoded.blob, count);
+            for (const sampleCount of [1, 647, 648, 649, 959, 960, 961, 1921]) {
+                const boundary = await api.encodeSpeechOpus(wav(sampleCount), context, {cancelled:false});
+                await inspectOgg(boundary.blob, sampleCount);
+            }
+            // Packet lacing includes >255 bytes and exact multiples of 255.
+            for (const size of [255, 256, 510, 65024]) {
+                const packet = new Uint8Array(size);
+                packet[0] = 0x98; // One 20 ms frame; payload bytes are structural test doubles.
+                await inspectOgg(api.muxOggOpus([packet], 648, 312), 648);
+            }
+            window.MediaRecorder = NativeRecorder;
+            let closed = 0;
+            window.AudioEncoder = class extends NativeEncoder {
+                configure() { throw new Error('Injected encoder failure'); }
+                close() { closed++; super.close(); }
+            };
+            const failed = await api.encodeSpeechOpus(wav(12000), context, {cancelled:false});
+            check(closed === 1 && failed.blob.size > 0, 'WebCodecs failure closes encoder and falls back to MediaRecorder');
+
+            window.AudioEncoder = NativeEncoder;
+            const nativeDecode = context.decodeAudioData;
+            let decodeCalls = 0;
+            context.decodeAudioData = function (bytes) {
+                if (++decodeCalls === 2) return Promise.resolve(context.createBuffer(2, 12000, 48000));
+                return nativeDecode.call(this, bytes);
+            };
+            try {
+                const verifiedFallback = await api.encodeSpeechOpus(wav(12000), context, {cancelled:false});
+                check(decodeCalls === 3 && verifiedFallback.blob.size > 0,
+                    'Failed WebCodecs decode validation falls back without loosening validation');
+            } finally { context.decodeAudioData = nativeDecode; }
+
+            let flushEntered = false;
+            let flushClosed = 0;
+            const flushJob = {cancelled:false};
+            window.AudioEncoder = class extends NativeEncoder {
+                flush() {
+                    flushEntered = true;
+                    setTimeout(() => flushJob.abortCurrent(), 0);
+                    return new Promise(() => {});
+                }
+                close() { flushClosed++; super.close(); }
+            };
+            const flushStarted = performance.now();
+            let flushAborted = false;
+            try { await api.encodeSpeechOpus(wav(12000), context, flushJob); }
+            catch (error) { flushAborted = error.name === 'AbortError'; }
+            check(flushEntered && flushAborted && flushClosed === 1 && !flushJob.abortCurrent
+                && performance.now() - flushStarted < 1000,
+                'Cancel interrupts stalled WebCodecs flush and closes encoder without fallback');
+
+            await api.dbClear();
+            const blob = wav(198577);
+            const original = {sentenceKey:'webcodecs-cancel', sentence:'cancel', fileName:'cancel.wav', mimeType:blob.type,
+                blob, size:blob.size, updatedAt:new Date().toISOString(), sha256:await api.sha256Hex(blob)};
+            await api.dbPut(original);
+            closed = 0;
+            let scheduled = false;
+            window.AudioEncoder = class extends NativeEncoder {
+                encode(data) {
+                    super.encode(data);
+                    if (!scheduled) {
+                        scheduled = true;
+                        setTimeout(() => api.handleCompressAudio(), 0);
+                    }
+                }
+                close() { closed++; super.close(); }
+            };
+            const cancelStarted = performance.now();
+            await api.handleCompressAudio();
+            check(scheduled && closed === 1 && performance.now() - cancelStarted < 1000
+                && (await api.dbGet(original.sentenceKey)).sha256 === original.sha256
+                && !api.state.compressionJob && !api.state.adminBusy,
+                'WebCodecs cancellation promptly closes encoder, preserves library and clears UI');
+        }
+        window.MediaRecorder = NativeRecorder;
+        window.AudioEncoder = undefined;
+        const fallback = await api.encodeSpeechOpus(wav(12000), context, {cancelled:false});
+        check(fallback.blob.size > 0 && /opus/.test(fallback.mimeType), 'Missing WebCodecs still compresses through native MediaRecorder');
+        window.AudioEncoder = class { static async isConfigSupported() { return {supported:false}; } };
+        const unsupported = await api.encodeSpeechOpus(wav(12000), context, {cancelled:false});
+        check(unsupported.blob.size > 0, 'Unsupported WebCodecs config falls back to native MediaRecorder');
+        return {checks, supported, path:supported ? 'WebCodecs Ogg + MediaRecorder fallback' : 'MediaRecorder fallback', ratio, ogg};
+    } finally {
+        window.AudioEncoder = NativeEncoder;
+        window.MediaRecorder = NativeRecorder;
+        if (nativeDataClose) AudioData.prototype.close = nativeDataClose;
+        await context.close();
+        await api.dbClear();
+    }
+};
