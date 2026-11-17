@@ -51,6 +51,9 @@
         VOICEVOX_DEFAULT_URL: 'http://127.0.0.1:50021',
         VOICEVOX_QUERY_TIMEOUT_MS: 15000,
         VOICEVOX_SYNTHESIS_TIMEOUT_MS: 60000,
+        // Silence before speech gives the learner time to react after P before shadowing.
+        VOICEVOX_LEAD_IN_CHOICES: Object.freeze([0.1, 0.3, 0.5, 0.8, 1.0]),
+        VOICEVOX_DEFAULT_LEAD_IN: 0.5,
         FALLBACK_RATE_MIN: 0.75,
         FALLBACK_RATE_MAX: 1.25,
         FALLBACK_RATE_STEP: 0.05,
@@ -83,6 +86,7 @@
         VOICEVOX_STYLE: 'bpLocalAudioServerlessVoicevoxStyle',
         VOICEVOX_LABEL: 'bpLocalAudioServerlessVoicevoxLabel',
         VOICEVOX_SPEED: 'bpLocalAudioServerlessVoicevoxSpeed',
+        VOICEVOX_LEAD_IN: 'bpLocalAudioServerlessVoicevoxLeadIn',
     });
 
     const SUPPORTED_LANGUAGES = Object.freeze([
@@ -105,6 +109,7 @@
             voicevox: 'VOICEVOX',
             voicevoxVoice: 'Voice',
             voicevoxSpeed: 'Speed',
+            voicevoxLeadIn: 'Lead-in silence',
             voicevoxUrl: 'Engine address',
             voicevoxLoad: 'Load voices',
             voicevoxChooseVoice: 'Load voices to choose',
@@ -272,6 +277,7 @@
             voicevox: 'VOICEVOX',
             voicevoxVoice: '音色',
             voicevoxSpeed: '语速',
+            voicevoxLeadIn: '开头静音',
             voicevoxUrl: '引擎地址',
             voicevoxLoad: '加载音色',
             voicevoxChooseVoice: '加载音色后选择',
@@ -439,6 +445,7 @@
             voicevox: 'VOICEVOX',
             voicevoxVoice: '聲音',
             voicevoxSpeed: '語速',
+            voicevoxLeadIn: '開頭靜音',
             voicevoxUrl: '引擎位址',
             voicevoxLoad: '載入聲音',
             voicevoxChooseVoice: '載入聲音後選擇',
@@ -606,6 +613,7 @@
             voicevox: 'VOICEVOX',
             voicevoxVoice: 'Voz',
             voicevoxSpeed: 'Velocidad',
+            voicevoxLeadIn: 'Silencio inicial',
             voicevoxUrl: 'Dirección del motor',
             voicevoxLoad: 'Cargar voces',
             voicevoxChooseVoice: 'Carga las voces para elegir',
@@ -773,6 +781,7 @@
             voicevox: 'VOICEVOX',
             voicevoxVoice: 'Suara',
             voicevoxSpeed: 'Kecepatan',
+            voicevoxLeadIn: 'Jeda awal',
             voicevoxUrl: 'Alamat mesin',
             voicevoxLoad: 'Muat suara',
             voicevoxChooseVoice: 'Muat suara untuk memilih',
@@ -940,6 +949,7 @@
             voicevox: 'VOICEVOX',
             voicevoxVoice: 'Voix',
             voicevoxSpeed: 'Vitesse',
+            voicevoxLeadIn: 'Silence initial',
             voicevoxUrl: 'Adresse du moteur',
             voicevoxLoad: 'Charger les voix',
             voicevoxChooseVoice: 'Chargez les voix pour choisir',
@@ -1107,6 +1117,7 @@
             voicevox: 'VOICEVOX',
             voicevoxVoice: '音声',
             voicevoxSpeed: '話速',
+            voicevoxLeadIn: '冒頭の無音',
             voicevoxUrl: 'エンジンのアドレス',
             voicevoxLoad: '音声を読み込む',
             voicevoxChooseVoice: '音声を読み込んで選択',
@@ -2943,6 +2954,11 @@
         }
     }
 
+    function getVoicevoxLeadIn() {
+        const value = Number(getSetting(STORAGE_KEYS.VOICEVOX_LEAD_IN, CONFIG.VOICEVOX_DEFAULT_LEAD_IN));
+        return CONFIG.VOICEVOX_LEAD_IN_CHOICES.includes(value) ? value : CONFIG.VOICEVOX_DEFAULT_LEAD_IN;
+    }
+
     function getVoicevoxSpeed() {
         const speed = Number(getSetting(STORAGE_KEYS.VOICEVOX_SPEED, 1));
         return speed >= 0.8 && speed <= 1.5 && Math.abs(speed * 10 - Math.round(speed * 10)) < 0.00001
@@ -3031,6 +3047,7 @@
         refs.voicevoxUrl.disabled = refs.voicevoxLoad.disabled;
         refs.voicevoxVoice.disabled = refs.voicevoxLoad.disabled;
         refs.voicevoxSpeed.disabled = refs.voicevoxLoad.disabled;
+        refs.voicevoxLeadIn.disabled = refs.voicevoxLoad.disabled;
         const selected = String(getSetting(STORAGE_KEYS.VOICEVOX_STYLE, ''));
         const label = getSetting(STORAGE_KEYS.VOICEVOX_LABEL, '');
         const voices = state.voicevoxVoices.slice();
@@ -3117,6 +3134,8 @@
             }
             if (!current()) return;
             query.speedScale = getVoicevoxSpeed();
+            // The engine divides phoneme lengths by speedScale; scale up to keep real seconds.
+            query.prePhonemeLength = getVoicevoxLeadIn() * query.speedScale;
             const blob = await voicevoxRequest(job, '/synthesis', { speaker }, query, true);
             const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
             if (blob.size <= 12 || String.fromCharCode(...header.slice(0, 4)) !== 'RIFF' ||
@@ -6080,6 +6099,7 @@
                     <strong data-role="voicevox-title"></strong>
                     <label><span data-role="voicevox-voice-label"></span><select data-role="voicevox-voice"></select></label>
                     <label><span data-role="voicevox-speed-label"></span><select data-role="voicevox-speed"></select></label>
+                    <label><span data-role="voicevox-lead-in-label"></span><select data-role="voicevox-lead-in"></select></label>
                     <label><span data-role="voicevox-url-label"></span><input data-role="voicevox-url" type="url" spellcheck="false"></label>
                     <button data-role="voicevox-load" type="button"></button>
                 </div>
@@ -6101,6 +6121,7 @@
             voicevoxButton: panel.querySelector('[data-role="voicevox"]'),
             voicevoxVoice: panel.querySelector('[data-role="voicevox-voice"]'),
             voicevoxSpeed: panel.querySelector('[data-role="voicevox-speed"]'),
+            voicevoxLeadIn: panel.querySelector('[data-role="voicevox-lead-in"]'),
             voicevoxUrl: panel.querySelector('[data-role="voicevox-url"]'),
             voicevoxLoad: panel.querySelector('[data-role="voicevox-load"]'),
             title: panel.querySelector('[data-role="title"]'),
@@ -6145,6 +6166,16 @@
             refs.voicevoxSpeed.append(option);
         }
         refs.voicevoxSpeed.value = String(getVoicevoxSpeed());
+        for (const seconds of CONFIG.VOICEVOX_LEAD_IN_CHOICES) {
+            const option = document.createElement('option');
+            option.value = String(seconds);
+            option.textContent = seconds.toFixed(1) + ' s';
+            refs.voicevoxLeadIn.append(option);
+        }
+        refs.voicevoxLeadIn.value = String(getVoicevoxLeadIn());
+        refs.voicevoxLeadIn.addEventListener('change', () => {
+            setSetting(STORAGE_KEYS.VOICEVOX_LEAD_IN, Number(refs.voicevoxLeadIn.value));
+        });
         refs.voicevoxSpeed.addEventListener('change', () => {
             setSetting(STORAGE_KEYS.VOICEVOX_SPEED, Number(refs.voicevoxSpeed.value));
         });
@@ -6244,7 +6275,8 @@
         refs.title.textContent = t('panelTitle');
         refs.chooseAudioButton.textContent = t('chooseAudio');
         for (const [role, key] of [['voicevox-title', 'voicevox'], ['voicevox-voice-label', 'voicevoxVoice'],
-            ['voicevox-speed-label', 'voicevoxSpeed'], ['voicevox-url-label', 'voicevoxUrl']]) {
+            ['voicevox-speed-label', 'voicevoxSpeed'], ['voicevox-lead-in-label', 'voicevoxLeadIn'],
+            ['voicevox-url-label', 'voicevoxUrl']]) {
             state.panel.querySelector(`[data-role="${role}"]`).textContent = t(key);
         }
         refs.voicevoxLoad.textContent = t('voicevoxLoad');

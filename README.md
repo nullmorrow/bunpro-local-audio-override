@@ -63,7 +63,10 @@ VOICEVOX refuses requests from BunPro. Chrome may also ask whether bunpro.jp may
 access devices on your local network; allow it for VOICEVOX to work.
 
 Under **Admin → VOICEVOX**, choose the default voice (select **Load voices**
-first), the speed and the engine address. Only addresses on this computer
+first), the speed, the lead-in silence and the engine address. The lead-in
+(0.5 s by default, 0.1–1.0 s) is silence at the start of the clip, so after
+pressing P you have a moment before the sentence starts; it stays the same at
+any speed. Only addresses on this computer
 (`127.0.0.1`, `localhost` or `[::1]`) are accepted.
 
 **Reading check:** VOICEVOX sometimes misreads kanji (for example 辛い as つらい

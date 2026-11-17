@@ -197,6 +197,7 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         check(state.selectedFile?.name === 'VOICEVOX Speaker(Normal).wav' && state.previewObjectUrl && state.audio,
             'generated WAV is selected and auto-previewed through the existing player');
         check(state.panelMessage.key === 'voicevoxReady' && state.panelMessage.vars.result.key === 'voicevoxMatched', 'matched ready status');
+        check(synthBody.prePhonemeLength === 0.5 && synthBody.speedScale === 1, 'default 0.5 s lead-in silence at normal speed');
         api.renderPanel();
         check(!state.overrideFound && state.playerOpen && state.audio?.src === state.previewObjectUrl,
             'preview keeps playing on a sentence without an override after the panel re-renders');
@@ -278,6 +279,8 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         state.refs.voicevoxUrl.dispatchEvent(new Event('change'));
         state.refs.voicevoxSpeed.value = '1.5';
         state.refs.voicevoxSpeed.dispatchEvent(new Event('change'));
+        state.refs.voicevoxLeadIn.value = '0.8';
+        state.refs.voicevoxLeadIn.dispatchEvent(new Event('change'));
         await api.handleVoicevox(true);
         check(state.panelMessage.key === 'voicevoxLoaded' && calls.length === 1, 'explicit Load voices only fetches speakers');
         check(api.getSetting(api.STORAGE_KEYS.VOICEVOX_URL) === 'http://localhost:50022' && api.getVoicevoxSpeed() === 1.5 &&
@@ -285,6 +288,9 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         calls = [];
         await api.handleVoicevox();
         check(synthBody.speedScale === 1.5 && !calls.some(url => url.pathname === '/speakers'), 'cached voice and configured speed used');
+        check(Math.abs(synthBody.prePhonemeLength - 0.8 * 1.5) < 1e-9 &&
+            api.getSetting(api.STORAGE_KEYS.VOICEVOX_LEAD_IN) === 0.8,
+            'lead-in setting persists and is scaled by speed to keep real seconds');
         setup('', []);
         await api.handleVoicevox();
         check(state.panelMessage.key === 'voicevoxNoSentence' && !calls.length, 'missing sentence makes no request');
