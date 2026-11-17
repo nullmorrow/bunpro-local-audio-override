@@ -5589,6 +5589,10 @@
         releaseLocalPlayerWrapper();
     }
 
+    function isSourcePreviewActive() {
+        return Boolean(state.eligible && state.previewObjectUrl && state.audio?.src === state.previewObjectUrl);
+    }
+
     function syncLocalOverrideUi() {
         const active = Boolean(
             state.eligible &&
@@ -5598,6 +5602,12 @@
             !isNativePRoute()
         );
         if (!active) {
+            // A chosen or generated file can be previewed before any override exists;
+            // keep its player until the preview is released or BunPro's own P takes over.
+            if (isSourcePreviewActive() && !isNativePRoute()) {
+                updateLocalPlayerControls();
+                return;
+            }
             if (
                 state.playerOpen ||
                 state.playerWrapper ||

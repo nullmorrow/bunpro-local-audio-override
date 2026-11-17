@@ -17,7 +17,7 @@ INJECTION = """
     window.__voicevoxTest = {extractVoicevoxReading, splitReadingMoras,
         canonicalizeReadingMoras, parseVoicevoxKana, alignVoicevoxReading,
         buildVoicevoxText, buildVoicevoxKana, state, t, handleVoicevox, cancelVoicevox,
-        ensureStateMatchesPage, handleSave, validateVoicevoxUrl, getSetting, setSetting, STORAGE_KEYS,
+        ensureStateMatchesPage, handleSave, handleTest, renderPanel, validateVoicevoxUrl, getSetting, setSetting, STORAGE_KEYS,
         getVoicevoxSpeed, resetForSentence,
         close: async () => { cancelVoicevox(false); releaseRecordingResources();
             releaseLocalOverrideUi(); releaseObjectUrl(); releasePreviewObjectUrl();

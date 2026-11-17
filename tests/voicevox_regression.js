@@ -197,6 +197,12 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         check(state.selectedFile?.name === 'VOICEVOX Speaker(Normal).wav' && state.previewObjectUrl && state.audio,
             'generated WAV is selected and auto-previewed through the existing player');
         check(state.panelMessage.key === 'voicevoxReady' && state.panelMessage.vars.result.key === 'voicevoxMatched', 'matched ready status');
+        api.renderPanel();
+        check(!state.overrideFound && state.playerOpen && state.audio?.src === state.previewObjectUrl,
+            'preview keeps playing on a sentence without an override after the panel re-renders');
+        await api.handleTest();
+        check(state.playerOpen && state.audio?.src === state.previewObjectUrl && state.panelMessage.key === 'testStarted',
+            'Test of the selected file keeps its preview without an override');
         check(state.voicevoxVoices.map(voice => voice.id).join() === '3,12',
             'talk and streaming_talk styles are voices; singing styles are not');
         await api.handleSave();
