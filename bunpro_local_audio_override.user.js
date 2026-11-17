@@ -3008,7 +3008,9 @@
         const speakers = await voicevoxRequest(job, '/speakers');
         if (!Array.isArray(speakers)) throw translatedError('voicevoxInvalidResponse');
         const voices = speakers.flatMap(speaker => (speaker.styles || [])
-            .filter(style => (!style.type || style.type === 'talk') && Number.isInteger(style.id) && style.id >= 0)
+            // Engine 0.26 reports ordinary voices as streaming_talk; singing styles cannot read sentences.
+            .filter(style => (!style.type || ['talk', 'streaming_talk'].includes(style.type)) &&
+                Number.isInteger(style.id) && style.id >= 0)
             .map(style => ({ id: style.id, label: `${speaker.name}(${style.name})` })));
         if (!voices.length) throw translatedError('voicevoxNoVoices');
         if (state.voicevoxJob !== job) return;

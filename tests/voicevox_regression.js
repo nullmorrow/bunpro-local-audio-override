@@ -167,7 +167,8 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
                 reject(new DOMException('Aborted', 'AbortError')), {once: true}));
         }
         if (url.pathname === '/speakers') return new Response(JSON.stringify([{name: 'Speaker', styles: [
-            {id: 3, name: 'Normal', type: 'talk'}, {id: 9, name: 'Song', type: 'sing'}]}]));
+            {id: 3, name: 'Normal', type: 'talk'}, {id: 9, name: 'Song', type: 'sing'},
+            {id: 12, name: 'Stream', type: 'streaming_talk'}, {id: 13, name: 'Frame', type: 'frame_decode'}]}]));
         if (url.pathname === '/audio_query') return new Response(JSON.stringify({kana: readings.shift(),
             accent_phrases: [], volumeScale: 0.7, speedScale: 1}));
         if (url.pathname === '/accent_phrases') {
@@ -196,7 +197,8 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         check(state.selectedFile?.name === 'VOICEVOX Speaker(Normal).wav' && state.previewObjectUrl && state.audio,
             'generated WAV is selected and auto-previewed through the existing player');
         check(state.panelMessage.key === 'voicevoxReady' && state.panelMessage.vars.result.key === 'voicevoxMatched', 'matched ready status');
-        check(state.voicevoxVoices.length === 1, 'only talk styles are offered');
+        check(state.voicevoxVoices.map(voice => voice.id).join() === '3,12',
+            'talk and streaming_talk styles are voices; singing styles are not');
         await api.handleSave();
         check(state.overrideFound && state.entry && !state.selectedFile, 'Save stores generated clip through normal flow');
         check((state.entry.file_name || state.entry.fileName) === 'VOICEVOX Speaker(Normal).wav', 'saved filename retained');
