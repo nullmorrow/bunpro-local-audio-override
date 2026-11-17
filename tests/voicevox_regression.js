@@ -184,6 +184,7 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         return new Response(wav);
     };
     try {
+        api.setSetting(api.STORAGE_KEYS.VOICEVOX_RECENT, []);
         api.setSetting(api.STORAGE_KEYS.VOICEVOX_STYLE, 3);
         api.setSetting(api.STORAGE_KEYS.VOICEVOX_LABEL, 'Speaker(Normal)');
         setup('かな。', ["カナ'"]);
@@ -216,6 +217,41 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         await api.handleSave();
         check(state.overrideFound && state.entry && !state.selectedFile, 'Save stores generated clip through normal flow');
         check((state.entry.file_name || state.entry.fileName) === 'VOICEVOX Speaker(Normal).wav', 'saved filename retained');
+        const recentRow = state.refs.voicevoxRecent;
+        check(!recentRow.hidden && api.getRecentVoicevoxVoices().map(voice => voice.id).join() === '3' &&
+            recentRow.querySelector('button[data-voice-id="3"]')?.getAttribute('aria-pressed') === 'true',
+            'a generated voice appears as a highlighted recent-voice button');
+        setup('かな。', ["カナ'"]);
+        await api.handleVoicevox(false, {id: 12, label: 'Speaker(Stream)'});
+        const synthesis = calls.find(url => url.pathname === '/synthesis');
+        check(synthesis?.searchParams.get('speaker') === '12' && state.selectedFile?.name === 'VOICEVOX Speaker(Stream).wav',
+            'a recent-voice button generates with that voice');
+        check(api.getSetting(api.STORAGE_KEYS.VOICEVOX_STYLE) === 12 &&
+            api.getRecentVoicevoxVoices().map(voice => voice.id).join() === '3,12' &&
+            recentRow.querySelector('button[data-voice-id="12"]')?.getAttribute('aria-pressed') === 'true' &&
+            recentRow.querySelector('button[data-voice-id="3"]')?.getAttribute('aria-pressed') === 'false',
+            'the picked voice becomes the default and buttons keep first-use order');
+        api.setSetting(api.STORAGE_KEYS.VOICEVOX_RECENT, Array.from({length: 8}, (_, index) =>
+            ({id: 20 + index, label: `Voice${index}(Normal)`, usedAt: index === 5 ? 1 : 100 + index})));
+        api.rememberVoicevoxVoice({id: 40, label: 'New(Normal)'});
+        check(api.getRecentVoicevoxVoices().map(voice => voice.id).join() === '20,21,22,23,24,26,27,40',
+            'a full list drops only the least recently used voice');
+        api.rememberVoicevoxVoice({id: 22, label: 'Voice2(Normal)'});
+        check(api.getRecentVoicevoxVoices().map(voice => voice.id).join() === '20,21,22,23,24,26,27,40',
+            'reusing a voice does not reorder the buttons');
+        check(api.shortVoicevoxLabel('四国めたん(ノーマル)') === '四国めたん' &&
+            api.shortVoicevoxLabel('ずんだもん(あまあま)') === 'ずんだもん(あまあま)',
+            'normal-style buttons show only the speaker name');
+        state.voicevoxJob = {controller: new AbortController()};
+        api.renderPanel();
+        check([...recentRow.querySelectorAll('button')].every(button => button.disabled),
+            'recent-voice buttons are disabled while generating');
+        state.voicevoxJob = null;
+        api.setSetting(api.STORAGE_KEYS.VOICEVOX_RECENT, []);
+        api.renderPanel();
+        check(recentRow.hidden, 'the recent-voice row is hidden when empty');
+        api.setSetting(api.STORAGE_KEYS.VOICEVOX_STYLE, 3);
+        api.setSetting(api.STORAGE_KEYS.VOICEVOX_LABEL, 'Speaker(Normal)');
         const item = fixtures.cases.find(item => item.expect === 'corrected');
         setup(item.html, [item.engineKana1, item.engineKana2]);
         await api.handleVoicevox();

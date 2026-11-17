@@ -54,6 +54,8 @@
         // Silence before speech gives the learner time to react after P before shadowing.
         VOICEVOX_LEAD_IN_CHOICES: Object.freeze([0.1, 0.3, 0.5, 0.8, 1.0]),
         VOICEVOX_DEFAULT_LEAD_IN: 0.5,
+        // About two rows of quick-pick buttons on a narrow review page.
+        VOICEVOX_RECENT_LIMIT: 8,
         FALLBACK_RATE_MIN: 0.75,
         FALLBACK_RATE_MAX: 1.25,
         FALLBACK_RATE_STEP: 0.05,
@@ -87,6 +89,7 @@
         VOICEVOX_LABEL: 'bpLocalAudioServerlessVoicevoxLabel',
         VOICEVOX_SPEED: 'bpLocalAudioServerlessVoicevoxSpeed',
         VOICEVOX_LEAD_IN: 'bpLocalAudioServerlessVoicevoxLeadIn',
+        VOICEVOX_RECENT: 'bpLocalAudioServerlessVoicevoxRecent',
     });
 
     const SUPPORTED_LANGUAGES = Object.freeze([
@@ -110,6 +113,8 @@
             voicevoxVoice: 'Voice',
             voicevoxSpeed: 'Speed',
             voicevoxLeadIn: 'Lead-in silence',
+            voicevoxRecent: 'Recent voices',
+            voicevoxUseVoice: 'Generate with {voice}',
             voicevoxUrl: 'Engine address',
             voicevoxLoad: 'Load voices',
             voicevoxChooseVoice: 'Load voices to choose',
@@ -278,6 +283,8 @@
             voicevoxVoice: '音色',
             voicevoxSpeed: '语速',
             voicevoxLeadIn: '开头静音',
+            voicevoxRecent: '最近音色',
+            voicevoxUseVoice: '用 {voice} 生成',
             voicevoxUrl: '引擎地址',
             voicevoxLoad: '加载音色',
             voicevoxChooseVoice: '加载音色后选择',
@@ -446,6 +453,8 @@
             voicevoxVoice: '聲音',
             voicevoxSpeed: '語速',
             voicevoxLeadIn: '開頭靜音',
+            voicevoxRecent: '最近音色',
+            voicevoxUseVoice: '用 {voice} 生成',
             voicevoxUrl: '引擎位址',
             voicevoxLoad: '載入聲音',
             voicevoxChooseVoice: '載入聲音後選擇',
@@ -614,6 +623,8 @@
             voicevoxVoice: 'Voz',
             voicevoxSpeed: 'Velocidad',
             voicevoxLeadIn: 'Silencio inicial',
+            voicevoxRecent: 'Voces recientes',
+            voicevoxUseVoice: 'Generar con {voice}',
             voicevoxUrl: 'Dirección del motor',
             voicevoxLoad: 'Cargar voces',
             voicevoxChooseVoice: 'Carga las voces para elegir',
@@ -782,6 +793,8 @@
             voicevoxVoice: 'Suara',
             voicevoxSpeed: 'Kecepatan',
             voicevoxLeadIn: 'Jeda awal',
+            voicevoxRecent: 'Suara terbaru',
+            voicevoxUseVoice: 'Buat dengan {voice}',
             voicevoxUrl: 'Alamat mesin',
             voicevoxLoad: 'Muat suara',
             voicevoxChooseVoice: 'Muat suara untuk memilih',
@@ -950,6 +963,8 @@
             voicevoxVoice: 'Voix',
             voicevoxSpeed: 'Vitesse',
             voicevoxLeadIn: 'Silence initial',
+            voicevoxRecent: 'Voix récentes',
+            voicevoxUseVoice: 'Générer avec {voice}',
             voicevoxUrl: 'Adresse du moteur',
             voicevoxLoad: 'Charger les voix',
             voicevoxChooseVoice: 'Chargez les voix pour choisir',
@@ -1118,6 +1133,8 @@
             voicevoxVoice: '音声',
             voicevoxSpeed: '話速',
             voicevoxLeadIn: '冒頭の無音',
+            voicevoxRecent: '最近使った音声',
+            voicevoxUseVoice: '{voice} で生成',
             voicevoxUrl: 'エンジンのアドレス',
             voicevoxLoad: '音声を読み込む',
             voicevoxChooseVoice: '音声を読み込んで選択',
@@ -3020,6 +3037,67 @@
         setSetting(STORAGE_KEYS.VOICEVOX_LABEL, voice.label);
     }
 
+    function getRecentVoicevoxVoices() {
+        const value = getSetting(STORAGE_KEYS.VOICEVOX_RECENT, []);
+        if (!Array.isArray(value)) return [];
+        return value.filter(voice => Number.isInteger(voice?.id) && voice.id >= 0 &&
+            typeof voice.label === 'string' && voice.label)
+            .map(voice => ({ id: voice.id, label: voice.label, usedAt: Number(voice.usedAt) || 0 }))
+            .slice(0, CONFIG.VOICEVOX_RECENT_LIMIT);
+    }
+
+    function rememberVoicevoxVoice(voice) {
+        // Buttons keep their first-use order so they do not jump under the cursor;
+        // when the list is full, the least recently used voice makes room.
+        const recent = getRecentVoicevoxVoices();
+        const existing = recent.find(item => item.id === voice.id);
+        if (existing) {
+            existing.label = voice.label;
+            existing.usedAt = Date.now();
+        } else {
+            if (recent.length >= CONFIG.VOICEVOX_RECENT_LIMIT) {
+                const oldest = recent.reduce((a, b) => (b.usedAt < a.usedAt ? b : a));
+                recent.splice(recent.indexOf(oldest), 1);
+            }
+            recent.push({ id: voice.id, label: voice.label, usedAt: Date.now() });
+        }
+        setSetting(STORAGE_KEYS.VOICEVOX_RECENT, recent);
+    }
+
+    function shortVoicevoxLabel(label) {
+        // Most voices are used in their ノーマル style, so the speaker name alone is enough.
+        const match = /^(.+)\((.+)\)$/u.exec(label);
+        return match && match[2] === 'ノーマル' ? match[1] : label;
+    }
+
+    function renderVoicevoxRecent(disabled) {
+        const container = state.refs?.voicevoxRecent;
+        if (!container) return;
+        const recent = getRecentVoicevoxVoices();
+        const selected = getSetting(STORAGE_KEYS.VOICEVOX_STYLE, null);
+        container.hidden = !recent.length;
+        const key = JSON.stringify([recent.map(voice => [voice.id, voice.label]), t('voicevoxRecent'),
+            t('voicevoxUseVoice')]);
+        if (container.dataset.key !== key) {
+            container.dataset.key = key;
+            const label = document.createElement('span');
+            label.textContent = t('voicevoxRecent');
+            container.replaceChildren(label, ...recent.map(voice => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.dataset.voiceId = String(voice.id);
+                button.textContent = shortVoicevoxLabel(voice.label);
+                button.title = t('voicevoxUseVoice', { voice: voice.label });
+                button.addEventListener('click', () => void handleVoicevox(false, voice));
+                return button;
+            }));
+        }
+        for (const button of container.querySelectorAll('button')) {
+            button.disabled = disabled;
+            button.setAttribute('aria-pressed', String(Number(button.dataset.voiceId) === selected));
+        }
+    }
+
     async function loadVoicevoxVoices(job) {
         const speakers = await voicevoxRequest(job, '/speakers');
         if (!Array.isArray(speakers)) throw translatedError('voicevoxInvalidResponse');
@@ -3048,6 +3126,7 @@
         refs.voicevoxVoice.disabled = refs.voicevoxLoad.disabled;
         refs.voicevoxSpeed.disabled = refs.voicevoxLoad.disabled;
         refs.voicevoxLeadIn.disabled = refs.voicevoxLoad.disabled;
+        renderVoicevoxRecent(busy || refs.fileInput.disabled);
         const selected = String(getSetting(STORAGE_KEYS.VOICEVOX_STYLE, ''));
         const label = getSetting(STORAGE_KEYS.VOICEVOX_LABEL, '');
         const voices = state.voicevoxVoices.slice();
@@ -3068,7 +3147,7 @@
         refs.voicevoxVoice.value = selected;
     }
 
-    async function handleVoicevox(loadOnly = false) {
+    async function handleVoicevox(loadOnly = false, voice = null) {
         if (state.voicevoxJob) {
             cancelVoicevox();
             return;
@@ -3089,6 +3168,8 @@
         }
         setSetting(STORAGE_KEYS.VOICEVOX_URL, url);
         state.refs.voicevoxUrl.value = url;
+        // A quick-pick voice also becomes the default for the VOICEVOX button.
+        if (voice) selectVoicevoxVoice(voice);
         const job = { url, controller: new AbortController(), sentence: state.normalizedSentence };
         state.voicevoxJob = job;
         setUiBusy(true, 'voicevoxGenerating');
@@ -3142,6 +3223,7 @@
                 String.fromCharCode(...header.slice(8, 12)) !== 'WAVE') throw translatedError('voicevoxInvalidResponse');
             const file = validateSelectedFile(new File([blob], `VOICEVOX ${label}.wav`, { type: 'audio/wav' }));
             if (!current()) return;
+            rememberVoicevoxVoice({ id: speaker, label });
             state.selectedFile = file;
             state.refs.fileInput.value = '';
             renderPanel();
@@ -6093,6 +6175,7 @@
                         <select data-role="mic-gain"></select>
                     </label>
                 </div>
+                <div class="bp-local-audio__voicevox-recent" data-role="voicevox-recent" hidden></div>
             </div>
             <div class="bp-local-audio__control-row bp-local-audio__admin-view" data-role="admin-view" hidden>
                 <div class="bp-local-audio__voicevox-settings">
@@ -6122,6 +6205,7 @@
             voicevoxVoice: panel.querySelector('[data-role="voicevox-voice"]'),
             voicevoxSpeed: panel.querySelector('[data-role="voicevox-speed"]'),
             voicevoxLeadIn: panel.querySelector('[data-role="voicevox-lead-in"]'),
+            voicevoxRecent: panel.querySelector('[data-role="voicevox-recent"]'),
             voicevoxUrl: panel.querySelector('[data-role="voicevox-url"]'),
             voicevoxLoad: panel.querySelector('[data-role="voicevox-load"]'),
             title: panel.querySelector('[data-role="title"]'),
@@ -7672,6 +7756,27 @@
         }
         #bp-local-audio-panel button[data-role="recording-toggle"][data-active="false"] {
             opacity: 0.65;
+        }
+        #bp-local-audio-panel .bp-local-audio__voicevox-recent {
+            display: flex;
+            flex: 1 1 100%;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.3rem;
+            min-width: 0;
+        }
+        #bp-local-audio-panel .bp-local-audio__voicevox-recent[hidden] {
+            display: none;
+        }
+        #bp-local-audio-panel .bp-local-audio__voicevox-recent button {
+            max-width: 12rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #bp-local-audio-panel .bp-local-audio__voicevox-recent button[aria-pressed="true"] {
+            border-color: currentColor;
+            font-weight: 600;
         }
         .${NATIVE_AUDIO_HIDDEN_CLASS} {
             display: none !important;
