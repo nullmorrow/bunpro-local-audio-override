@@ -1,5 +1,17 @@
 # BunPro Local Audio Override — Greasy Fork Changelog
 
+## 0.6.2.0 — 2026-11-18
+
+- 新增 VOICEVOX 按钮：本机运行 VOICEVOX 时，一键生成当前句子的音频，自动试听，满意后保存。Admin 中可设置默认音色、语速、开头静音（默认 0.5 秒，按 P 后留出反应时间再跟读）和引擎地址（仅限本机地址）。用过的音色会显示为“最近音色”按钮（最多 8 个），点一下即用该音色生成，并设为默认音色。首次使用需在 VOICEVOX 的 `http://127.0.0.1:50021/setting` 中把 `https://bunpro.jp` 加入 Allow Origin 并重启 VOICEVOX。
+- 生成时用 BunPro 的振假名核对读音：先用原文生成，只把读错的词换成振假名；仍不对时再直接用假名指定读音，并保留断句和重音。提示会说明读音是否一致、纠正了哪些词。不会修改 VOICEVOX 用户词典。
+- 修复：在还没有本地覆盖的句子上，点 **测试** 试听所选文件时，播放会立即停止。
+
+### English release summary
+
+- New VOICEVOX button: with VOICEVOX running on this computer, generate the current sentence in one click, preview it, and save it. Admin sets the default voice, speed, lead-in silence (0.5 s by default, time to react after P before shadowing) and engine address (this computer only). Recently used voices appear as quick-pick buttons (up to 8); one click generates with that voice and makes it the default. First add `https://bunpro.jp` to Allow Origin at `http://127.0.0.1:50021/setting` and restart VOICEVOX.
+- The reading is checked against BunPro's furigana: the original text is used first, only misread words are replaced by their furigana, and kana with the original phrasing and accents is the last fallback. The message reports whether the reading matched and which words were corrected. The VOICEVOX user dictionary is not changed.
+- Fixed: on a sentence without a saved override, **Test** stopped the selected file's preview immediately.
+
 ## 0.6.1.7 — 2026-11-02
 
 - 浏览器支持 WebCodecs Opus 时，音频压缩明显快于实时播放，Firefox 和 Chrome 均生成 Ogg/Opus；不支持或编码失败时，继续使用原来的实时压缩方式。

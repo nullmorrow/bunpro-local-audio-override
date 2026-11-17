@@ -1,4 +1,4 @@
-# BunPro Local Audio Override v0.6.1.7
+# BunPro Local Audio Override v0.6.2.0
 
 > 在浏览器中为 BunPro 句子保存自定义音频，并通过 P 键录音、O 键回听自己的发音。无需 Python、本地服务器或音频上传。
 
@@ -8,7 +8,7 @@
 
 BunPro Local Audio Override 是一个面向 BunPro 复习、Cram 和自学句子的油猴脚本。它可以把一个本地音频文件与当前句子关联，并在之后遇到同一句时，用自定义音频替代 BunPro 的句子音频。
 
-v0.6.1.7 将浏览器存储版的音频管理功能与口语练习录音整合到同一个脚本中：
+v0.6.2.0 将浏览器存储版的音频管理功能与口语练习录音整合到同一个脚本中：
 
 - 自定义音频按句子保存在当前浏览器的 IndexedDB 中。
 - 无需 Python、BAT、后台服务、固定文件路径或网络权限。
@@ -19,6 +19,7 @@ v0.6.1.7 将浏览器存储版的音频管理功能与口语练习录音整合�
 - 提供 1×、1.5×、2×、3×、4× 录音增益，方便轻声练习后回听。
 - 麦克风不可用或 USB 断连时，参考播放不再等待录音启动；失败后暂缓重试，支持设备恢复。
 - 提供 `.bpao` 数据库导出、导入、覆盖导入、完整性校验和清空功能。
+- 可调用本机 VOICEVOX 一键生成当前句子的音频，并用 BunPro 振假名核对、纠正读音，试听后保存。
 - 提供 **Compress Audio / 压缩音频**，在浏览器中批量压缩已保存的逐句音频，并显示进度和节省空间。
 - 提供默认关闭、会记住选择的“自动压缩新音频”开关，用于之后保存或导入的音频。
 - `.bpao` 导入、导出逐条处理，不再一次读取整个文件，也不设置 512 MiB 的整包大小上限；50 MiB 单音频上限、磁盘空间和浏览器存储配额仍然适用。
@@ -64,6 +65,20 @@ v0.6.1.7 将浏览器存储版的音频管理功能与口语练习录音整合�
 每个音频文件最大 50 MiB（52,428,800 字节）。浏览器安全机制不允许 serverless 脚本静默读取 `C:\temp\001.wav` 之类的固定路径，因此每次添加新音频时必须通过浏览器文件选择器选择文件。
 
 句子键会在保存和查询时进行统一化处理，以减少页面空格和字符形式差异造成的重复映射。
+
+## 用 VOICEVOX 生成音频
+
+如果本机正在运行 [VOICEVOX](https://voicevox.hiroshiba.jp/)，答案显示后点击 **VOICEVOX** 按钮：脚本把当前句子发给本机的 VOICEVOX 引擎，生成后自动试听一次，并把结果设为已选择的文件；满意就点 **Save / 保存**。生成期间按钮变成 **取消**。
+
+**首次设置（只需一次）：** 打开 `http://127.0.0.1:50021/setting`，在 **Allow Origin** 中填入 `https://bunpro.jp`，保存后重启 VOICEVOX。不设置的话，VOICEVOX 会拒绝来自 BunPro 页面的请求。Chrome 可能还会询问是否允许 bunpro.jp 访问本地网络设备，请选择允许。
+
+在 **Admin → VOICEVOX** 中可以设置默认音色（先点 **加载音色**）、语速、开头静音和引擎地址。开头静音默认 0.5 秒（可选 0.1–1.0 秒），让你按 P 后有一点反应时间再开始跟读；无论语速多少，静音长度都不变。
+
+用过的音色会以 **最近音色** 按钮显示在面板下方（最多 8 个，大约两行）。点一下就用该音色生成当前句子，它同时成为 **VOICEVOX** 按钮的默认音色，并高亮显示，不用每次进 Admin 切换。按钮顺序固定不跳动；满 8 个时，替换最久没用的那个。引擎地址只接受本机地址（`127.0.0.1`、`localhost` 或 `[::1]`）。
+
+**读音核对：** VOICEVOX 偶尔会读错汉字，例如把“辛い”读成“つらい”而不是“からい”。脚本先用原文生成，保留自然的断句和声调，再把 VOICEVOX 的读音与 BunPro 的振假名对比：只把读错的词换成振假名；仍不对时，再保留断句和重音，直接用假名指定读音。完成后的提示会说明读音是否一致、纠正了哪些词，或因部分汉字没有振假名而无法完全核对。脚本不会修改 VOICEVOX 的用户词典。
+
+生成的音频就是普通的覆盖音频：自动压缩、备份和 **删除** 都照常适用。请遵守各 VOICEVOX 角色的使用条款；公开分享生成的音频时，请注明音色，例如“VOICEVOX:ずんだもん”。
 
 ## 快捷键和播放器操作
 
@@ -221,7 +236,7 @@ Admin 中的自动压缩开关默认关闭，选择会保存在当前浏览器�
 - IndexedDB 数据库：`BunProLocalAudioOverrideCommunity`
 - 对象存储：`audioOverrides`
 
-脚本不需要网络权限，也不会把自定义音频或练习录音发送到 BunPro 或其他服务器。请注意：
+脚本不需要网络权限，也不会把自定义音频或练习录音发送到 BunPro 或其他服务器。只有点击 **VOICEVOX** 或 **加载音色** 时，才会把当前句子的文字发给本机的 VOICEVOX 引擎。请注意：
 
 - 清除 `bunpro.jp` 的站点数据可能删除全部覆盖音频；
 - 删除浏览器配置、使用临时配置或某些隐私模式也可能删除数据；
@@ -230,7 +245,7 @@ Admin 中的自动压缩开关默认关闭，选择会保存在当前浏览器�
 
 ## BunPro 页面兼容性
 
-v0.6.1.7 同时支持：
+v0.6.2.0 同时支持：
 
 - 旧版 `#js-tour-quiz-question`、`#js-tour-quiz-answer` 和 `#js-tour-quiz-pam` 结构；
 - 新版 `#js-quiz .bp-quiz-question` 和 `.bp-quiz-console` 结构。
@@ -252,7 +267,7 @@ v0.6.1.7 同时支持：
 
 ### P/O 出现重复播放或重复录音
 
-打开 Tampermonkey Dashboard，只保留 v0.6.1.7，禁用所有旧版或重复副本，然后完整刷新 BunPro 页面。
+打开 Tampermonkey Dashboard，只保留 v0.6.2.0，禁用所有旧版或重复副本，然后完整刷新 BunPro 页面。
 
 ### 没有本地覆盖时，P 键是否仍可使用
 
@@ -268,7 +283,9 @@ v0.6.1.7 同时支持：
 
 ## English summary for Greasy Fork
 
-**BunPro Local Audio Override v0.6.1.7** stores a custom audio clip for each BunPro cloze sentence in the browser's IndexedDB and plays it through a BunPro-style player. No Python process, localhost service, fixed source path, network permission, or upload is required.
+**BunPro Local Audio Override v0.6.2.0** stores a custom audio clip for each BunPro cloze sentence in the browser's IndexedDB and plays it through a BunPro-style player. No Python process, localhost service, fixed source path, network permission, or upload is required.
+
+New in **0.6.2.0**: with VOICEVOX running on the same computer, the **VOICEVOX** button generates the current sentence, previews it and lets you save it. The reading is checked against BunPro's furigana and misread words are corrected. Admin sets the default voice, speed, lead-in silence (0.5 s by default) and engine address; recently used voices appear as one-click buttons. One-time setup: add `https://bunpro.jp` to Allow Origin at `http://127.0.0.1:50021/setting` and restart VOICEVOX. Test previews of a chosen file no longer stop immediately on a sentence without a saved override.
 
 New in **0.6.1.7**: with WebCodecs Opus support, compression is much faster than real time and produces Ogg/Opus in both Firefox and Chrome. If unsupported or encoding fails, the previous real-time method is used: Ogg/Opus in Firefox and WebM/Opus in Chrome.
 
@@ -292,4 +309,4 @@ An optional **automatic compression** setting applies the same process to newly 
 
 There is no 512 MiB whole-backup cap. Import reads and validates entries without loading the whole file into one string, then saves clips in batches with checking and saving progress. If import stops, the message reports how many entries were saved; import the same file again with the same button to finish. Export also builds the backup entry by entry. The `.bpao` format is unchanged. The 50 MiB per-clip limit, available memory, disk space and browser storage quota determine practical capacity.
 
-Version 0.6.1.7 retains support for both legacy and September 2026 BunPro review layouts. It also tracks BunPro audio objects that Firefox keeps outside the DOM, allowing local overrides to follow BunPro playback rates such as 75% and 85%. The 0.6.1 fix is retained: after an O-key recording review ends naturally, the next P press starts a new playback-and-recording cycle immediately. Disable every older or duplicate copy of the script before use.
+Version 0.6.2.0 retains support for both legacy and September 2026 BunPro review layouts. It also tracks BunPro audio objects that Firefox keeps outside the DOM, allowing local overrides to follow BunPro playback rates such as 75% and 85%. The 0.6.1 fix is retained: after an O-key recording review ends naturally, the next P press starts a new playback-and-recording cycle immediately. Disable every older or duplicate copy of the script before use.
