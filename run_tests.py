@@ -18,6 +18,7 @@ TESTS = [
     ('storage', ('test_storage.py',), True, False),
     ('lookup', ('test_lookup.py',), True, False),
     ('hotkeys', ('test_hotkeys.py',), True, False),
+    ('voicevox', ('test_voicevox.py',), True, False),
     ('panel', ('test_panel.py',), True, False),
 ]
 USER_SCRIPT = 'bunpro_local_audio_override.user.js'
@@ -56,6 +57,8 @@ def main():
     parser.add_argument('--geckodriver', default=os.environ.get('BUNPRO_GECKODRIVER'))
     parser.add_argument('--chromedriver', default=os.environ.get('BUNPRO_CHROMEDRIVER'))
     parser.add_argument('--skip-lint', action='store_true')
+    parser.add_argument('--tests', nargs='+', choices=[test[0] for test in TESTS],
+                        help='Run only these browser regressions (default: all)')
     parser.add_argument('--browser-script', default=os.environ.get('BUNPRO_BROWSER_SCRIPT'),
                         help='Browser userscript for optional cross-edition tests')
     args = parser.parse_args()
@@ -89,6 +92,8 @@ def main():
         print_summary(results)
         return 1
     for name, arguments, per_browser, needs_script in TESTS:
+        if args.tests is not None and name not in args.tests:
+            continue
         for browser in browsers if per_browser else ['-']:
             if needs_script and not args.browser_script:
                 results.append((name, browser, 'skipped(no browser script)', 0.0))

@@ -49,6 +49,37 @@ and choices such as **75%** or **85%**. A fallback speed selector is available
 when a BunPro speed cannot be observed. Sentences without native audio can still
 use an override and the supplied player.
 
+## Generate a clip with VOICEVOX
+
+If [VOICEVOX](https://voicevox.hiroshiba.jp/) is running on the same computer,
+select **VOICEVOX** after the answer is revealed. The sentence is sent to the
+local VOICEVOX engine, the result is played once as a preview and becomes the
+selected file; select **Save** to keep it. While it is generating, the button
+reads **Cancel**.
+
+**One-time setup:** open `http://127.0.0.1:50021/setting`, add
+`https://bunpro.jp` to **Allow Origin**, save, and restart VOICEVOX. Without it,
+VOICEVOX refuses requests from BunPro. Chrome may also ask whether bunpro.jp may
+access devices on your local network; allow it for VOICEVOX to work.
+
+Under **Admin → VOICEVOX**, choose the default voice (select **Load voices**
+first), the speed and the engine address. Only addresses on this computer
+(`127.0.0.1`, `localhost` or `[::1]`) are accepted.
+
+**Reading check:** VOICEVOX sometimes misreads kanji (for example 辛い as つらい
+instead of からい). The script first generates from the original text, which
+keeps natural word boundaries and pitch accent, and compares VOICEVOX's reading
+with BunPro's furigana. Only misread words are replaced by their furigana; if
+that is not enough, the reading is passed to VOICEVOX as kana while keeping its
+phrasing and accents. The message says whether the reading matched, which words
+were corrected, or whether it could not be checked because some kanji have no
+furigana. The VOICEVOX user dictionary is never changed.
+
+Generated clips are ordinary overrides: automatic compression, backups and
+**Delete** work as for any chosen file. Follow each VOICEVOX character's terms
+of use, and credit the voice (for example "VOICEVOX:ずんだもん") if you share
+generated audio.
+
 ## Speaking practice and O replay
 
 | Action | Result |
@@ -141,6 +172,8 @@ P/O practice recordings are temporary in the current page's memory, not in the
 audio library or `.bpao` backups. They are replaced by a new take and disappear
 when the page closes. Neither reference clips nor practice recordings are uploaded
 by this userscript. Its metadata uses `@grant none` and no remote dependencies.
+Only when you select **VOICEVOX** or **Load voices** does it contact the VOICEVOX
+engine on this computer, sending the current sentence text.
 
 The UI supports English, 简体中文, 繁體中文, Español, Bahasa Indonesia, Français
 and 日本語. Review layout support covers the legacy and September 2026 structures;

@@ -254,6 +254,10 @@ window.runPanelLayoutRegression = (width) => {
         for (const [language, label] of Object.entries(chooseLabels)) {
             api.setUiLanguage(language);
             check(refs.chooseAudioButton.textContent === label, width + ': ' + language + ' choose-audio translation');
+            check(refs.voicevoxButton.textContent === 'VOICEVOX' &&
+                refs.voicevoxLoad.textContent === api.t('voicevoxLoad') &&
+                state.panel.querySelector('[data-role="voicevox-url-label"]').textContent === api.t('voicevoxUrl'),
+                width + ': ' + language + ' VOICEVOX controls translated');
             for (const adminMode of [false, true]) {
                 const prefix = width + ': ' + language + ' ' + (adminMode ? 'admin' : 'main');
                 state.adminMode = adminMode;

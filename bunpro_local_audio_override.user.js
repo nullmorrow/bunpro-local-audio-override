@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BunPro Local Audio Override
 // @namespace    bunpro.local-audio-override.serverless
-// @version      0.6.1.7
+// @version      0.6.2.0
 // @description  Store per-sentence audio overrides in your browser and practise speaking with P-to-record / O-to-review. No local server or upload required.
 // @description:zh-CN  把逐句自定义音频保存在浏览器中，在 BunPro 复习时播放，并通过 P 键录音、O 键回听。无需本地服务，也不会上传音频。
 // @description:zh-TW  把逐句自訂音訊保存在瀏覽器中，在 BunPro 複習時播放，並透過 P 鍵錄音、O 鍵回聽。無需本機服務，也不會上傳音訊。
@@ -44,10 +44,13 @@
         BACKUP_ENTRY_MAX_BYTES: Math.ceil(50 * 1024 * 1024 / 3) * 4 + 1024 * 1024,
         BACKUP_MEMBER_MAX_BYTES: 1024 * 1024,
         IMPORT_BATCH_BYTES: 32 * 1024 * 1024,
-        SCRIPT_VERSION: '0.6.1.7',
+        SCRIPT_VERSION: '0.6.2.0',
         CLEAN_CONFIRM_TIMEOUT_MS: 10000,
         COMPRESSION_START_TIMEOUT_MS: 10000,
         DEFAULT_FALLBACK_RATE: 1.0,
+        VOICEVOX_DEFAULT_URL: 'http://127.0.0.1:50021',
+        VOICEVOX_QUERY_TIMEOUT_MS: 15000,
+        VOICEVOX_SYNTHESIS_TIMEOUT_MS: 60000,
         FALLBACK_RATE_MIN: 0.75,
         FALLBACK_RATE_MAX: 1.25,
         FALLBACK_RATE_STEP: 0.05,
@@ -76,6 +79,10 @@
         MIC_PROCESSING: 'bpLocalAudioServerlessMicProcessing',
         RECORDING_GAIN: 'bpLocalAudioServerlessRecordingGain',
         AUTO_COMPRESS: 'bpLocalAudioServerlessAutoCompress',
+        VOICEVOX_URL: 'bpLocalAudioServerlessVoicevoxUrl',
+        VOICEVOX_STYLE: 'bpLocalAudioServerlessVoicevoxStyle',
+        VOICEVOX_LABEL: 'bpLocalAudioServerlessVoicevoxLabel',
+        VOICEVOX_SPEED: 'bpLocalAudioServerlessVoicevoxSpeed',
     });
 
     const SUPPORTED_LANGUAGES = Object.freeze([
@@ -95,6 +102,30 @@
 
     const I18N = Object.freeze({
         en: {
+            voicevox: 'VOICEVOX',
+            voicevoxVoice: 'Voice',
+            voicevoxSpeed: 'Speed',
+            voicevoxUrl: 'Engine address',
+            voicevoxLoad: 'Load voices',
+            voicevoxChooseVoice: 'Load voices to choose',
+            voicevoxCancel: 'Cancel',
+            voicevoxGenerating: 'Generating with VOICEVOX…',
+            voicevoxReady: 'VOICEVOX ready — {voice}. {result}',
+            voicevoxMatched: 'Reading matched.',
+            voicevoxCorrected: 'Reading corrected: {words}.',
+            voicevoxPartial: 'Some kanji have no furigana.',
+            voicevoxUnverified: 'Reading unverified: no furigana.',
+            voicevoxMismatch: 'Reading may still differ.',
+            voicevoxUnreachable: 'Cannot reach VOICEVOX at {url}. Start VOICEVOX, add https://bunpro.jp to Allow Origin at {url}/setting, then restart VOICEVOX.',
+            voicevoxTimeout: 'VOICEVOX request timed out.',
+            voicevoxCancelled: 'VOICEVOX cancelled.',
+            voicevoxEngineError: 'VOICEVOX engine error (HTTP {status}).',
+            voicevoxInvalidUrl: 'Enter a loopback HTTP(S) address using 127.0.0.1, localhost or [::1], with an optional port.',
+            voicevoxLoaded: 'Loaded {count} VOICEVOX voices.',
+            voicevoxNoSentence: 'No sentence is available for VOICEVOX.',
+            voicevoxInvalidResponse: 'VOICEVOX returned invalid audio or response data.',
+            voicevoxNoVoices: 'VOICEVOX has no talk voices.',
+            voicevoxFailed: 'VOICEVOX failed: {error}',
             // General
             panelTitle: 'Local audio override',
             statusWaiting: 'Waiting for answer',
@@ -238,6 +269,30 @@
             compressionValidationFailed: 'Encoded audio failed duration/channel validation; the original was kept.',
         },
         'zh-CN': {
+            voicevox: 'VOICEVOX',
+            voicevoxVoice: '音色',
+            voicevoxSpeed: '语速',
+            voicevoxUrl: '引擎地址',
+            voicevoxLoad: '加载音色',
+            voicevoxChooseVoice: '加载音色后选择',
+            voicevoxCancel: '取消',
+            voicevoxGenerating: '正在使用 VOICEVOX 生成……',
+            voicevoxReady: 'VOICEVOX 已生成（{voice}）。{result}',
+            voicevoxMatched: '读音匹配。',
+            voicevoxCorrected: '已纠正读音：{words}。',
+            voicevoxPartial: '部分汉字没有振假名。',
+            voicevoxUnverified: '读音未验证：没有振假名。',
+            voicevoxMismatch: '读音可能仍有差异。',
+            voicevoxUnreachable: '无法连接 {url} 的 VOICEVOX。请启动 VOICEVOX，在 {url}/setting 的 Allow Origin 中添加 https://bunpro.jp，然后重启 VOICEVOX。',
+            voicevoxTimeout: 'VOICEVOX 请求超时。',
+            voicevoxCancelled: '已取消 VOICEVOX。',
+            voicevoxEngineError: 'VOICEVOX 引擎错误（HTTP {status}）。',
+            voicevoxInvalidUrl: '请输入使用 127.0.0.1、localhost 或 [::1] 的本机 HTTP(S) 地址，可附带端口。',
+            voicevoxLoaded: '已加载 {count} 个 VOICEVOX 音色。',
+            voicevoxNoSentence: '没有可用于 VOICEVOX 的句子。',
+            voicevoxInvalidResponse: 'VOICEVOX 返回了无效的音频或响应数据。',
+            voicevoxNoVoices: 'VOICEVOX 没有可用的朗读音色。',
+            voicevoxFailed: 'VOICEVOX 失败：{error}',
             // General
             panelTitle: '本地音频覆盖',
             statusWaiting: '等待正确答案',
@@ -381,6 +436,30 @@
             compressionValidationFailed: '编码后音频的时长或声道验证失败；已保留原音频。',
         },
         'zh-TW': {
+            voicevox: 'VOICEVOX',
+            voicevoxVoice: '聲音',
+            voicevoxSpeed: '語速',
+            voicevoxUrl: '引擎位址',
+            voicevoxLoad: '載入聲音',
+            voicevoxChooseVoice: '載入聲音後選擇',
+            voicevoxCancel: '取消',
+            voicevoxGenerating: '正在使用 VOICEVOX 產生……',
+            voicevoxReady: 'VOICEVOX 已就緒 — {voice}。{result}',
+            voicevoxMatched: '讀音相符。',
+            voicevoxCorrected: '已修正讀音：{words}。',
+            voicevoxPartial: '部分漢字沒有振假名。',
+            voicevoxUnverified: '讀音未驗證：沒有振假名。',
+            voicevoxMismatch: '讀音可能仍有差異。',
+            voicevoxUnreachable: '無法連線至 {url} 的 VOICEVOX。請啟動 VOICEVOX，在 {url}/setting 的 Allow Origin 中新增 https://bunpro.jp，然後重新啟動 VOICEVOX。',
+            voicevoxTimeout: 'VOICEVOX 請求逾時。',
+            voicevoxCancelled: '已取消 VOICEVOX。',
+            voicevoxEngineError: 'VOICEVOX 引擎錯誤（HTTP {status}）。',
+            voicevoxInvalidUrl: '請輸入使用 127.0.0.1、localhost 或 [::1] 的本機 HTTP(S) 位址，可附帶連接埠。',
+            voicevoxLoaded: '已載入 {count} 個 VOICEVOX 聲音。',
+            voicevoxNoSentence: '沒有可供 VOICEVOX 使用的句子。',
+            voicevoxInvalidResponse: 'VOICEVOX 傳回無效的音訊或回應資料。',
+            voicevoxNoVoices: 'VOICEVOX 沒有可用的說話聲音。',
+            voicevoxFailed: 'VOICEVOX 失敗：{error}',
             // General
             panelTitle: '本機音訊覆蓋',
             statusWaiting: '等待正確答案',
@@ -524,6 +603,30 @@
             compressionValidationFailed: '編碼後音訊的時長或聲道驗證失敗；已保留原音訊。',
         },
         es: {
+            voicevox: 'VOICEVOX',
+            voicevoxVoice: 'Voz',
+            voicevoxSpeed: 'Velocidad',
+            voicevoxUrl: 'Dirección del motor',
+            voicevoxLoad: 'Cargar voces',
+            voicevoxChooseVoice: 'Carga las voces para elegir',
+            voicevoxCancel: 'Cancelar',
+            voicevoxGenerating: 'Generando con VOICEVOX…',
+            voicevoxReady: 'VOICEVOX listo — {voice}. {result}',
+            voicevoxMatched: 'La lectura coincide.',
+            voicevoxCorrected: 'Lectura corregida: {words}.',
+            voicevoxPartial: 'Algunos kanji no tienen furigana.',
+            voicevoxUnverified: 'Lectura sin verificar: no hay furigana.',
+            voicevoxMismatch: 'La lectura aún puede diferir.',
+            voicevoxUnreachable: 'No se puede conectar con VOICEVOX en {url}. Inicia VOICEVOX, añade https://bunpro.jp a Allow Origin en {url}/setting y reinicia VOICEVOX.',
+            voicevoxTimeout: 'La solicitud a VOICEVOX agotó el tiempo de espera.',
+            voicevoxCancelled: 'VOICEVOX cancelado.',
+            voicevoxEngineError: 'Error del motor VOICEVOX (HTTP {status}).',
+            voicevoxInvalidUrl: 'Introduce una dirección HTTP(S) local con 127.0.0.1, localhost o [::1] y un puerto opcional.',
+            voicevoxLoaded: 'Se cargaron {count} voces de VOICEVOX.',
+            voicevoxNoSentence: 'No hay ninguna frase disponible para VOICEVOX.',
+            voicevoxInvalidResponse: 'VOICEVOX devolvió audio o datos de respuesta inválidos.',
+            voicevoxNoVoices: 'VOICEVOX no tiene voces de habla.',
+            voicevoxFailed: 'Falló VOICEVOX: {error}',
             // General
             panelTitle: 'Sustitución de audio local',
             statusWaiting: 'Esperando la respuesta correcta',
@@ -667,6 +770,30 @@
             compressionValidationFailed: 'El audio codificado no superó la validación de duración o canales; se conservó el original.',
         },
         id: {
+            voicevox: 'VOICEVOX',
+            voicevoxVoice: 'Suara',
+            voicevoxSpeed: 'Kecepatan',
+            voicevoxUrl: 'Alamat mesin',
+            voicevoxLoad: 'Muat suara',
+            voicevoxChooseVoice: 'Muat suara untuk memilih',
+            voicevoxCancel: 'Batal',
+            voicevoxGenerating: 'Membuat audio dengan VOICEVOX…',
+            voicevoxReady: 'VOICEVOX siap — {voice}. {result}',
+            voicevoxMatched: 'Bacaan cocok.',
+            voicevoxCorrected: 'Bacaan diperbaiki: {words}.',
+            voicevoxPartial: 'Beberapa kanji tidak memiliki furigana.',
+            voicevoxUnverified: 'Bacaan belum terverifikasi: tidak ada furigana.',
+            voicevoxMismatch: 'Bacaan mungkin masih berbeda.',
+            voicevoxUnreachable: 'Tidak dapat menghubungi VOICEVOX di {url}. Jalankan VOICEVOX, tambahkan https://bunpro.jp ke Allow Origin di {url}/setting, lalu mulai ulang VOICEVOX.',
+            voicevoxTimeout: 'Permintaan VOICEVOX kehabisan waktu.',
+            voicevoxCancelled: 'VOICEVOX dibatalkan.',
+            voicevoxEngineError: 'Kesalahan mesin VOICEVOX (HTTP {status}).',
+            voicevoxInvalidUrl: 'Masukkan alamat HTTP(S) lokal dengan 127.0.0.1, localhost atau [::1], dengan port opsional.',
+            voicevoxLoaded: 'Memuat {count} suara VOICEVOX.',
+            voicevoxNoSentence: 'Tidak ada kalimat untuk VOICEVOX.',
+            voicevoxInvalidResponse: 'VOICEVOX mengembalikan audio atau data respons yang tidak valid.',
+            voicevoxNoVoices: 'VOICEVOX tidak memiliki suara bicara.',
+            voicevoxFailed: 'VOICEVOX gagal: {error}',
             // General
             panelTitle: 'Pengganti audio lokal',
             statusWaiting: 'Menunggu jawaban benar',
@@ -810,6 +937,30 @@
             compressionValidationFailed: 'Audio hasil pengodean gagal dalam validasi durasi atau kanal; audio asli dipertahankan.',
         },
         fr: {
+            voicevox: 'VOICEVOX',
+            voicevoxVoice: 'Voix',
+            voicevoxSpeed: 'Vitesse',
+            voicevoxUrl: 'Adresse du moteur',
+            voicevoxLoad: 'Charger les voix',
+            voicevoxChooseVoice: 'Chargez les voix pour choisir',
+            voicevoxCancel: 'Annuler',
+            voicevoxGenerating: 'Génération avec VOICEVOX…',
+            voicevoxReady: 'VOICEVOX prêt — {voice}. {result}',
+            voicevoxMatched: 'La lecture correspond.',
+            voicevoxCorrected: 'Lecture corrigée : {words}.',
+            voicevoxPartial: 'Certains kanjis sont sans furigana.',
+            voicevoxUnverified: 'Lecture non vérifiée : aucun furigana.',
+            voicevoxMismatch: 'La lecture peut encore différer.',
+            voicevoxUnreachable: 'Impossible de joindre VOICEVOX à {url}. Démarrez VOICEVOX, ajoutez https://bunpro.jp à Allow Origin dans {url}/setting, puis redémarrez VOICEVOX.',
+            voicevoxTimeout: 'La requête VOICEVOX a expiré.',
+            voicevoxCancelled: 'VOICEVOX annulé.',
+            voicevoxEngineError: 'Erreur du moteur VOICEVOX (HTTP {status}).',
+            voicevoxInvalidUrl: 'Saisissez une adresse HTTP(S) locale avec 127.0.0.1, localhost ou [::1], et un port facultatif.',
+            voicevoxLoaded: '{count} voix VOICEVOX chargées.',
+            voicevoxNoSentence: 'Aucune phrase disponible pour VOICEVOX.',
+            voicevoxInvalidResponse: 'VOICEVOX a renvoyé un audio ou une réponse invalide.',
+            voicevoxNoVoices: 'VOICEVOX ne propose aucune voix parlée.',
+            voicevoxFailed: 'Échec de VOICEVOX : {error}',
             // General
             panelTitle: 'Remplacement audio local',
             statusWaiting: 'En attente de la bonne réponse',
@@ -953,6 +1104,30 @@
             compressionValidationFailed: 'La validation de la durée ou des canaux de l’audio encodé a échoué ; l’original a été conservé.',
         },
         ja: {
+            voicevox: 'VOICEVOX',
+            voicevoxVoice: '音声',
+            voicevoxSpeed: '話速',
+            voicevoxUrl: 'エンジンのアドレス',
+            voicevoxLoad: '音声を読み込む',
+            voicevoxChooseVoice: '音声を読み込んで選択',
+            voicevoxCancel: 'キャンセル',
+            voicevoxGenerating: 'VOICEVOX で生成中…',
+            voicevoxReady: 'VOICEVOX の音声が完成 — {voice}。{result}',
+            voicevoxMatched: '読みが一致しました。',
+            voicevoxCorrected: '読みを修正しました：{words}。',
+            voicevoxPartial: '一部の漢字に振り仮名がありません。',
+            voicevoxUnverified: '読みは未確認です：振り仮名がありません。',
+            voicevoxMismatch: '読みがまだ異なる可能性があります。',
+            voicevoxUnreachable: '{url} の VOICEVOX に接続できません。VOICEVOX を起動し、{url}/setting の Allow Origin に https://bunpro.jp を追加してから、VOICEVOX を再起動してください。',
+            voicevoxTimeout: 'VOICEVOX のリクエストがタイムアウトしました。',
+            voicevoxCancelled: 'VOICEVOX をキャンセルしました。',
+            voicevoxEngineError: 'VOICEVOX エンジンエラー（HTTP {status}）。',
+            voicevoxInvalidUrl: '127.0.0.1、localhost または [::1] のローカル HTTP(S) アドレスを入力してください。ポートも指定できます。',
+            voicevoxLoaded: 'VOICEVOX の音声を {count} 件読み込みました。',
+            voicevoxNoSentence: 'VOICEVOX で生成する文がありません。',
+            voicevoxInvalidResponse: 'VOICEVOX から無効な音声または応答が返されました。',
+            voicevoxNoVoices: 'VOICEVOX にトーク音声がありません。',
+            voicevoxFailed: 'VOICEVOX に失敗しました：{error}',
             // General
             panelTitle: 'ローカル音声の上書き',
             statusWaiting: '正解待ち',
@@ -1120,6 +1295,9 @@
     const state = {
         dbPromise: null,
         selectedFile: null,
+        voicevoxJob: null,
+        voicevoxVoices: [],
+        voicevoxVoicesUrl: '',
         eligible: false,
         sentence: '',
         normalizedSentence: '',
@@ -2390,17 +2568,286 @@
         return { parent: answer.parentElement, anchor: answer };
     }
 
-    function getSentenceFromDom() {
-        const sentenceRoot =
+    function getSentenceRoot() {
+        return (
             document.querySelector('#js-tour-quiz-question .QuestionSentenceQuestionCloze > .text-center') ||
             document.querySelector('#js-tour-quiz-question .bp-quiz-question > .text-center') ||
             document.querySelector('#js-quiz .QuestionSentenceQuestionCloze > .text-center') ||
-            document.querySelector('#js-quiz .bp-quiz-question > .text-center');
+            document.querySelector('#js-quiz .bp-quiz-question > .text-center')
+        );
+    }
+
+    function getSentenceFromDom() {
+        const sentenceRoot = getSentenceRoot();
         if (!sentenceRoot) return '';
 
         const clone = sentenceRoot.cloneNode(true);
         clone.querySelectorAll('rt, rp').forEach((node) => node.remove());
         return normalizeSentence(clone.textContent || '');
+    }
+
+    function extractVoicevoxReading(root) {
+        const segments = [];
+        let pending = '';
+        function flushText() {
+            for (const surface of pending.split(/([\p{Script=Han}\p{N}\p{Script=Latin}]+)/u)) {
+                if (!surface) continue;
+                const unknown = /[\p{Script=Han}\p{N}\p{Script=Latin}]/u.test(surface);
+                segments.push({ surface, reading: unknown ? null : surface, ruby: false });
+            }
+            pending = '';
+        }
+        function visit(node) {
+            if (node.nodeType === 3) {
+                pending += node.textContent;
+                return;
+            }
+            if (node.nodeType !== 1 || node.matches('rt, rp')) return;
+            if (node.matches('ruby') && node.querySelector('rt')?.textContent.trim()) {
+                flushText();
+                const base = node.cloneNode(true);
+                base.querySelectorAll('rt, rp').forEach(child => child.remove());
+                segments.push({ surface: base.textContent,
+                    reading: [...node.querySelectorAll('rt')].map(rt => rt.textContent).join(''), ruby: true });
+                return;
+            }
+            node.childNodes.forEach(visit);
+        }
+        if (root) visit(root);
+        flushText();
+        const surface = segments.map(segment => segment.surface).join('').replace(/\s+/gu, ' ').trim();
+        const hasUnknown = segments.some(segment => segment.reading === null);
+        return { segments, surface, text: surface.normalize('NFKC'), hasUnknown,
+            hasRuby: segments.some(segment => segment.ruby),
+            reading: hasUnknown ? null : segments.map(segment => segment.reading).join('').replace(/\s+/gu, ' ').trim() };
+    }
+
+    function readingKatakana(value) {
+        return String(value || '').normalize('NFKC').replace(/[ぁ-ゖ]/gu,
+            character => String.fromCharCode(character.charCodeAt(0) + 0x60));
+    }
+
+    function splitReadingMoras(value) {
+        const moras = [];
+        for (const character of readingKatakana(value).replace(/[\p{P}\p{S}\s]/gu, '')) {
+            if (/[ャュョァィゥェォヮ]/u.test(character) && moras.length) {
+                moras[moras.length - 1] += character;
+            } else {
+                moras.push(character);
+            }
+        }
+        return moras;
+    }
+
+    function readingMoraVowel(mora) {
+        const last = mora.slice(-1);
+        const rows = ['アカガサザタダナハバパマャヤラヮワァヵ', 'イキギシジチヂニヒビピミリィ',
+            'ウクグスズツヅヌフブプムュユルヴゥ', 'エケゲセゼテデネヘベペメレェヶ',
+            'オコゴソゾトドノホボポモョヨロヲォ'];
+        return ['a', 'i', 'u', 'e', 'o'][rows.findIndex(row => row.includes(last))] || '';
+    }
+
+    function canonicalizeReadingMoras(moras, previousVowel = '') {
+        const equivalents = { ヲ: 'オ', ハ: 'ワ', ヘ: 'エ', ヂ: 'ジ', ヅ: 'ズ' };
+        return moras.map(mora => {
+            const pronunciation = equivalents[mora] || mora;
+            const vowel = readingMoraVowel(pronunciation);
+            const long = pronunciation === 'ー' || (previousVowel &&
+                ((pronunciation === 'ア' && previousVowel === 'a') ||
+                 (pronunciation === 'イ' && ['i', 'e'].includes(previousVowel)) ||
+                 (pronunciation === 'ウ' && ['u', 'o'].includes(previousVowel)) ||
+                 (pronunciation === 'エ' && previousVowel === 'e') ||
+                 (pronunciation === 'オ' && previousVowel === 'o')));
+            previousVowel = long ? previousVowel : vowel;
+            return long ? 'LONG' : pronunciation;
+        });
+    }
+
+    function parseVoicevoxKana(kana) {
+        const phrases = [];
+        const moras = [];
+        const text = readingKatakana(kana);
+        let phrase = { moras: [], accent: 0, question: false, separator: '' };
+        let devoiced = false;
+        function finish(separator) {
+            if (!phrase.moras.length || !phrase.accent || devoiced) return false;
+            phrase.separator = separator;
+            phrases.push(phrase);
+            phrase = { moras: [], accent: 0, question: false, separator: '' };
+            return true;
+        }
+        for (const character of text) {
+            if (character === '/' || character === '、') {
+                if (!finish(character)) return null;
+            } else if (character === "'") {
+                if (!phrase.moras.length || phrase.accent || devoiced || phrase.question) return null;
+                phrase.accent = phrase.moras.length;
+            } else if (character === '_') {
+                if (devoiced || phrase.question) return null;
+                devoiced = true;
+            } else if (character === '?') {
+                if (!phrase.moras.length || phrase.question || devoiced) return null;
+                phrase.question = true;
+            } else if (/[ァ-ヺー]/u.test(character) && !phrase.question) {
+                const previous = phrase.moras[phrase.moras.length - 1];
+                if (/[ャュョァィゥェォヮ]/u.test(character)) {
+                    if (!previous || devoiced || phrase.accent === phrase.moras.length ||
+                        /[ャュョァィゥェォヮッンー]$/u.test(previous.text)) return null;
+                    previous.text += character;
+                } else {
+                    const mora = { text: character, devoiced, phrase: phrases.length, index: moras.length };
+                    phrase.moras.push(mora);
+                    moras.push(mora);
+                    devoiced = false;
+                }
+            } else {
+                return null;
+            }
+        }
+        if (phrase.moras.length) {
+            if (!finish('')) return null;
+        } else if (!phrases.length || phrases[phrases.length - 1].separator !== '、' || devoiced) {
+            return null;
+        }
+        let previousVowel = '';
+        for (const mora of moras) {
+            mora.vowelBefore = previousVowel;
+            if (mora.text !== 'ー') previousVowel = readingMoraVowel(mora.text);
+        }
+        return { phrases, moras, canonical: canonicalizeReadingMoras(moras.map(mora => mora.text)) };
+    }
+
+    function voicevoxQueryKana(query) {
+        if (typeof query === 'string') return query;
+        if (typeof query?.kana === 'string') return query.kana;
+        if (!Array.isArray(query?.accent_phrases)) return '';
+        if (query.accent_phrases.some(phrase => !phrase || !Array.isArray(phrase.moras) || !phrase.moras.length ||
+            !Number.isInteger(phrase.accent) || phrase.accent < 0 || phrase.accent > phrase.moras.length)) return '';
+        return query.accent_phrases.map((phrase, index, phrases) => {
+            const accent = phrase.accent || phrase.moras.length;
+            return phrase.moras.map((mora, moraIndex) => (/^[AIUEO]$/u.test(mora.vowel) ? '_' : '') +
+                mora.text + (moraIndex + 1 === accent ? "'" : '')).join('') +
+                (phrase.is_interrogative ? '？' : '') + (phrase.pause_mora ? '、' : index + 1 < phrases.length ? '/' : '');
+        }).join('');
+    }
+
+    function alignVoicevoxReading(extracted, query) {
+        const engineKana = voicevoxQueryKana(query);
+        const engine = parseVoicevoxKana(engineKana);
+        const tokens = [];
+        extracted.segments.forEach((segment, index) => {
+            if (segment.reading === null) {
+                tokens.push({ wildcard: true, segment: index });
+            } else {
+                splitReadingMoras(segment.reading).forEach(text => tokens.push({ text, segment: index }));
+            }
+        });
+        // Unknown spans break vowel context because their final mora is unavailable.
+        let known = [];
+        function finishKnown() {
+            const values = canonicalizeReadingMoras(known.map(token => token.text));
+            known.forEach((token, index) => { token.value = values[index]; });
+            known = [];
+        }
+        for (const token of tokens) {
+            if (token.wildcard) finishKnown();
+            else known.push(token);
+        }
+        finishKnown();
+        const operations = [];
+        let distance = Infinity;
+        if (engine) {
+            const width = engine.moras.length + 1;
+            const costs = Array.from({ length: tokens.length + 1 }, () => new Float64Array(width).fill(Infinity));
+            const paths = Array.from({ length: tokens.length + 1 }, () => new Array(width));
+            costs[0][0] = 0;
+            for (let i = 0; i <= tokens.length; i += 1) {
+                for (let j = 0; j < width; j += 1) {
+                    if (!i && !j) continue;
+                    const token = tokens[i - 1];
+                    function choose(cost, previousI, previousJ, type) {
+                        if (cost < costs[i][j]) {
+                            costs[i][j] = cost;
+                            paths[i][j] = { previousI, previousJ, type, token: i - 1, engine: j - 1 };
+                        }
+                    }
+                    if (token?.wildcard) {
+                        if (j) {
+                            choose(costs[i - 1][j - 1], i - 1, j - 1, 'wildcard');
+                            choose(costs[i][j - 1], i, j - 1, 'wildcard');
+                        }
+                    } else if (token) {
+                        // The aligned wildcard supplies the otherwise unknown vowel context.
+                        const value = tokens[i - 2]?.wildcard && j ?
+                            canonicalizeReadingMoras([token.text], engine.moras[j - 1].vowelBefore)[0] : token.value;
+                        const equal = value === engine.canonical[j - 1];
+                        if (j) choose(costs[i - 1][j - 1] + (equal ? 0 : 1), i - 1, j - 1, equal ? 'equal' : 'replace');
+                        choose(costs[i - 1][j] + 1, i - 1, j, 'delete');
+                    }
+                    if (j) choose(costs[i][j - 1] + 1, i, j - 1, 'insert');
+                }
+            }
+            distance = costs[tokens.length][width - 1];
+            let i = tokens.length;
+            let j = width - 1;
+            while (i || j) {
+                const operation = paths[i][j];
+                if (!operation) break;
+                operations.push(operation);
+                i = operation.previousI;
+                j = operation.previousJ;
+            }
+            operations.reverse();
+        }
+        const ruby = extracted.segments.map((segment, index) => ({ ...segment, segment: index,
+            status: engine ? 'ok' : 'mismatch', engineReading: '' })).filter(segment => segment.ruby);
+        for (const operation of operations) {
+            let token = tokens[operation.token];
+            if (operation.type === 'insert' && !extracted.segments[token?.segment]?.ruby) {
+                token = tokens[operation.token + 1] || token;
+            }
+            const result = ruby.find(segment => segment.segment === token?.segment);
+            if (!result) continue;
+            if (operation.type !== 'delete') result.engineReading += engine.moras[operation.engine].text;
+            if (!['equal', 'wildcard'].includes(operation.type)) result.status = 'mismatch';
+        }
+        const status = !extracted.hasRuby && extracted.hasUnknown ? 'unverified' : distance ? 'mismatch' :
+            extracted.hasUnknown ? 'partial' : 'matched';
+        return { status, ruby, misread: ruby.filter(segment => segment.status === 'mismatch'),
+            engine, tokens, operations, distance };
+    }
+
+    function buildVoicevoxText(extracted, alignment) {
+        const mismatched = new Set(alignment.misread.map(segment => segment.segment));
+        return extracted.segments.map((segment, index) => mismatched.has(index) ? segment.reading : segment.surface).join('');
+    }
+
+    function buildVoicevoxKana(alignment) {
+        const { engine, tokens, operations } = alignment;
+        if (!engine || !operations.length || alignment.status === 'unverified') return null;
+        const phrases = engine.phrases.map(phrase => ({ ...phrase, moras: [] }));
+        for (let index = 0; index < operations.length; index += 1) {
+            const operation = operations[index];
+            if (operation.type === 'insert') continue;
+            const retained = operation.type === 'equal' || operation.type === 'wildcard';
+            let source = engine.moras[operation.engine];
+            if (operation.type === 'delete') {
+                const neighbour = operations.slice(index + 1).find(item => ['equal', 'wildcard', 'replace'].includes(item.type)) ||
+                    operations.slice(0, index).reverse().find(item => ['equal', 'wildcard', 'replace'].includes(item.type));
+                source = engine.moras[neighbour?.engine];
+            }
+            if (!source) return null;
+            const text = retained ? source.text : tokens[operation.token].text;
+            if (!/^[ァ-ヺー][ャュョァィゥェォヮ]?$/u.test(text)) return null;
+            phrases[source.phrase].moras.push({ text, devoiced: retained && source.devoiced });
+        }
+        if (phrases.some(phrase => !phrase.moras.length)) return null;
+        const kana = phrases.map(phrase => {
+            const accent = Math.max(1, Math.min(phrase.accent, phrase.moras.length));
+            return phrase.moras.map((mora, index) => (mora.devoiced ? '_' : '') + mora.text +
+                (index + 1 === accent ? "'" : '')).join('') + (phrase.question ? '？' : '') + phrase.separator;
+        }).join('');
+        return parseVoicevoxKana(kana) ? kana : null;
     }
 
     function getSentenceFromPrefetch() {
@@ -2482,7 +2929,231 @@
         state.previewObjectUrl = '';
     }
 
+    function validateVoicevoxUrl(value) {
+        try {
+            const url = new URL(String(value).trim());
+            if (!['http:', 'https:'].includes(url.protocol) ||
+                !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
+                url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+                throw new Error();
+            }
+            return url.origin;
+        } catch {
+            throw translatedError('voicevoxInvalidUrl');
+        }
+    }
+
+    function getVoicevoxSpeed() {
+        const speed = Number(getSetting(STORAGE_KEYS.VOICEVOX_SPEED, 1));
+        return speed >= 0.8 && speed <= 1.5 && Math.abs(speed * 10 - Math.round(speed * 10)) < 0.00001
+            ? Math.round(speed * 10) / 10 : 1;
+    }
+
+    function cancelVoicevox(showMessage = true) {
+        const job = state.voicevoxJob;
+        if (!job) return;
+        state.voicevoxJob = null;
+        job.controller.abort();
+        setUiBusy(false);
+        if (showMessage) setPanelMessage('voicevoxCancelled');
+        renderVoicevoxControls();
+    }
+
+    async function voicevoxRequest(job, path, params = {}, body, wav = false) {
+        const base = validateVoicevoxUrl(job.url);
+        const url = new URL(path, base);
+        url.search = new URLSearchParams(params).toString();
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        job.controller.signal.addEventListener('abort', abort, { once: true });
+        if (job.controller.signal.aborted) controller.abort();
+        let timedOut = false;
+        const timer = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, wav ? CONFIG.VOICEVOX_SYNTHESIS_TIMEOUT_MS : CONFIG.VOICEVOX_QUERY_TIMEOUT_MS);
+        try {
+            const response = await fetch(url.href, {
+                method: path === '/speakers' ? 'GET' : 'POST',
+                signal: controller.signal,
+                redirect: 'error',
+                credentials: 'omit',
+                referrerPolicy: 'no-referrer',
+                ...(body === undefined ? {} : {
+                    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+                }),
+            });
+            if (!response.ok) {
+                const error = translatedError('voicevoxEngineError', { status: response.status });
+                error.status = response.status;
+                throw error;
+            }
+            return await (wav ? response.blob() : response.json());
+        } catch (error) {
+            if (timedOut) throw translatedError('voicevoxTimeout');
+            if (error?.name === 'TypeError') throw translatedError('voicevoxUnreachable', { url: base });
+            throw error;
+        } finally {
+            clearTimeout(timer);
+            job.controller.signal.removeEventListener('abort', abort);
+        }
+    }
+
+    function selectVoicevoxVoice(voice) {
+        setSetting(STORAGE_KEYS.VOICEVOX_STYLE, voice.id);
+        setSetting(STORAGE_KEYS.VOICEVOX_LABEL, voice.label);
+    }
+
+    async function loadVoicevoxVoices(job) {
+        const speakers = await voicevoxRequest(job, '/speakers');
+        if (!Array.isArray(speakers)) throw translatedError('voicevoxInvalidResponse');
+        const voices = speakers.flatMap(speaker => (speaker.styles || [])
+            .filter(style => (!style.type || style.type === 'talk') && Number.isInteger(style.id) && style.id >= 0)
+            .map(style => ({ id: style.id, label: `${speaker.name}(${style.name})` })));
+        if (!voices.length) throw translatedError('voicevoxNoVoices');
+        if (state.voicevoxJob !== job) return;
+        state.voicevoxVoices = voices;
+        state.voicevoxVoicesUrl = job.url;
+        const selected = Number(getSetting(STORAGE_KEYS.VOICEVOX_STYLE, -1));
+        selectVoicevoxVoice(voices.find(voice => voice.id === selected) || voices[0]);
+        renderVoicevoxControls();
+    }
+
+    function renderVoicevoxControls() {
+        const refs = state.refs;
+        if (!refs?.voicevoxButton) return;
+        const busy = Boolean(state.voicevoxJob);
+        refs.voicevoxButton.textContent = t(busy ? 'voicevoxCancel' : 'voicevox');
+        refs.voicevoxButton.disabled = !busy && refs.fileInput.disabled;
+        refs.voicevoxLoad.disabled = busy || state.adminBusy || refs.fileInput.disabled;
+        refs.voicevoxUrl.disabled = refs.voicevoxLoad.disabled;
+        refs.voicevoxVoice.disabled = refs.voicevoxLoad.disabled;
+        refs.voicevoxSpeed.disabled = refs.voicevoxLoad.disabled;
+        const selected = String(getSetting(STORAGE_KEYS.VOICEVOX_STYLE, ''));
+        const label = getSetting(STORAGE_KEYS.VOICEVOX_LABEL, '');
+        const voices = state.voicevoxVoices.slice();
+        if (!voices.some(voice => String(voice.id) === selected)) {
+            voices.unshift({ id: selected, label: label || t('voicevoxChooseVoice') });
+        }
+        const options = [...refs.voicevoxVoice.options];
+        if (options.length !== voices.length || voices.some((voice, index) =>
+            options[index].value !== String(voice.id) || options[index].textContent !== voice.label)) {
+            refs.voicevoxVoice.replaceChildren();
+            for (const voice of voices) {
+                const option = document.createElement('option');
+                option.value = String(voice.id);
+                option.textContent = voice.label;
+                refs.voicevoxVoice.append(option);
+            }
+        }
+        refs.voicevoxVoice.value = selected;
+    }
+
+    async function handleVoicevox(loadOnly = false) {
+        if (state.voicevoxJob) {
+            cancelVoicevox();
+            return;
+        }
+        if (state.refs?.fileInput.disabled || state.adminBusy) return;
+        ensureStateMatchesPage();
+        const extracted = extractVoicevoxReading(getSentenceRoot());
+        if (!loadOnly && (!state.eligible || !extracted.text)) {
+            setPanelMessage('voicevoxNoSentence');
+            return;
+        }
+        let url;
+        try {
+            url = validateVoicevoxUrl(state.refs.voicevoxUrl.value);
+        } catch (error) {
+            setPanelMessageFromError(error);
+            return;
+        }
+        setSetting(STORAGE_KEYS.VOICEVOX_URL, url);
+        state.refs.voicevoxUrl.value = url;
+        const job = { url, controller: new AbortController(), sentence: state.normalizedSentence };
+        state.voicevoxJob = job;
+        setUiBusy(true, 'voicevoxGenerating');
+        renderVoicevoxControls();
+        const current = () => state.voicevoxJob === job && state.normalizedSentence === job.sentence &&
+            (loadOnly || normalizeSentence(getSentenceFromDom()) === job.sentence);
+        try {
+            if (loadOnly || state.voicevoxVoicesUrl !== url) await loadVoicevoxVoices(job);
+            if (!current()) return;
+            if (loadOnly) {
+                setPanelMessage('voicevoxLoaded', { count: state.voicevoxVoices.length });
+                return;
+            }
+            const speaker = Number(getSetting(STORAGE_KEYS.VOICEVOX_STYLE, 0));
+            const label = getSetting(STORAGE_KEYS.VOICEVOX_LABEL, '');
+            let query = await voicevoxRequest(job, '/audio_query', { text: extracted.text, speaker });
+            let alignment = alignVoicevoxReading(extracted, query);
+            const misread = new Map(alignment.misread.map(segment => [segment.segment, segment]));
+            if (alignment.status === 'mismatch' && alignment.misread.length) {
+                const next = await voicevoxRequest(job, '/audio_query', {
+                    text: buildVoicevoxText(extracted, alignment), speaker,
+                });
+                const nextAlignment = alignVoicevoxReading(extracted, next);
+                // Keep the closer query if kana substitution makes another reading worse.
+                if (nextAlignment.distance <= alignment.distance) {
+                    query = next;
+                    alignment = nextAlignment;
+                }
+            }
+            if (alignment.status === 'mismatch') {
+                alignment.misread.forEach(segment => misread.set(segment.segment, segment));
+                const kana = buildVoicevoxKana(alignment);
+                if (kana) {
+                    try {
+                        const phrases = await voicevoxRequest(job, '/accent_phrases', { text: kana, speaker, is_kana: true });
+                        if (!Array.isArray(phrases)) throw translatedError('voicevoxInvalidResponse');
+                        query = { ...query, kana, accent_phrases: phrases };
+                        alignment = alignVoicevoxReading(extracted, { accent_phrases: phrases });
+                    } catch (error) {
+                        if (error.status !== 400) throw error;
+                    }
+                }
+            }
+            if (!current()) return;
+            query.speedScale = getVoicevoxSpeed();
+            const blob = await voicevoxRequest(job, '/synthesis', { speaker }, query, true);
+            const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+            if (blob.size <= 12 || String.fromCharCode(...header.slice(0, 4)) !== 'RIFF' ||
+                String.fromCharCode(...header.slice(8, 12)) !== 'WAVE') throw translatedError('voicevoxInvalidResponse');
+            const file = validateSelectedFile(new File([blob], `VOICEVOX ${label}.wav`, { type: 'audio/wav' }));
+            if (!current()) return;
+            state.selectedFile = file;
+            state.refs.fileInput.value = '';
+            renderPanel();
+            try {
+                await playSourcePreview(file, current);
+            } catch (error) {
+                if (current()) setPanelMessage('testFailed', { error: errorMessage(error) });
+                return;
+            }
+            if (!current()) return;
+            const words = [...misread.values()].map(segment => `${segment.surface}→${segment.reading}`).join(', ');
+            const result = alignment.status === 'matched' && words
+                ? { key: 'voicevoxCorrected', vars: { words } }
+                : { key: 'voicevox' + alignment.status[0].toUpperCase() + alignment.status.slice(1) };
+            setPanelMessage('voicevoxReady', { voice: label, result });
+        } catch (error) {
+            if (current()) {
+                if (error.name === 'AbortError') setPanelMessage('voicevoxCancelled');
+                else if (error.translation) setPanelMessageFromError(error);
+                else setPanelMessage('voicevoxFailed', { error: errorMessage(error) });
+            }
+        } finally {
+            if (state.voicevoxJob === job) {
+                state.voicevoxJob = null;
+                setUiBusy(false);
+                renderVoicevoxControls();
+                renderPanel();
+            }
+        }
+    }
+
     function resetForSentence(sentence) {
+        cancelVoicevox(false);
         state.pHotkeyGeneration += 1;
         state.pPlaybackStartPending = false;
         releasePRoute({ resetNative: true });
@@ -4099,10 +4770,14 @@
         });
     }
 
-    async function playSourcePreview(selectedFile) {
+    async function playSourcePreview(selectedFile, isCurrent = () => true) {
         stopLocalAudio();
         releasePreviewObjectUrl();
         const objectUrl = await loadSourcePreviewObjectUrl(selectedFile);
+        if (!isCurrent()) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+        }
         state.previewObjectUrl = objectUrl;
         await playObjectUrl(objectUrl, {
             restart: true,
@@ -5359,6 +6034,7 @@
             <div class="bp-local-audio__control-row" data-role="main-view">
                 <div class="bp-local-audio__control-group">
                     <button data-role="choose-audio" type="button"></button>
+                    <button data-role="voicevox" type="button"></button>
                     <input data-role="file" type="file" accept="audio/*,.wav,.mp3,.ogg,.oga,.m4a,.aac,.flac,.webm" hidden>
                     <span class="bp-local-audio__file-name" data-role="file-name"></span>
                     <label class="bp-local-audio__speed-control" data-role="fallback-control">
@@ -5384,6 +6060,13 @@
                 </div>
             </div>
             <div class="bp-local-audio__control-row bp-local-audio__admin-view" data-role="admin-view" hidden>
+                <div class="bp-local-audio__voicevox-settings">
+                    <strong data-role="voicevox-title"></strong>
+                    <label><span data-role="voicevox-voice-label"></span><select data-role="voicevox-voice"></select></label>
+                    <label><span data-role="voicevox-speed-label"></span><select data-role="voicevox-speed"></select></label>
+                    <label><span data-role="voicevox-url-label"></span><input data-role="voicevox-url" type="url" spellcheck="false"></label>
+                    <button data-role="voicevox-load" type="button"></button>
+                </div>
                 <button data-role="export" type="button"></button>
                 <button data-role="import" type="button"></button>
                 <button data-role="import-replace" type="button"></button>
@@ -5399,6 +6082,11 @@
         `;
 
         const refs = {
+            voicevoxButton: panel.querySelector('[data-role="voicevox"]'),
+            voicevoxVoice: panel.querySelector('[data-role="voicevox-voice"]'),
+            voicevoxSpeed: panel.querySelector('[data-role="voicevox-speed"]'),
+            voicevoxUrl: panel.querySelector('[data-role="voicevox-url"]'),
+            voicevoxLoad: panel.querySelector('[data-role="voicevox-load"]'),
             title: panel.querySelector('[data-role="title"]'),
             status: panel.querySelector('[data-role="status"]'),
             sentence: panel.querySelector('[data-role="sentence"]'),
@@ -5433,6 +6121,32 @@
         };
 
         populateRateOptions(refs.fallbackRate);
+        refs.voicevoxUrl.value = getSetting(STORAGE_KEYS.VOICEVOX_URL, CONFIG.VOICEVOX_DEFAULT_URL);
+        for (let step = 8; step <= 15; step += 1) {
+            const option = document.createElement('option');
+            option.value = String(step / 10);
+            option.textContent = (step / 10).toFixed(1) + '×';
+            refs.voicevoxSpeed.append(option);
+        }
+        refs.voicevoxSpeed.value = String(getVoicevoxSpeed());
+        refs.voicevoxSpeed.addEventListener('change', () => {
+            setSetting(STORAGE_KEYS.VOICEVOX_SPEED, Number(refs.voicevoxSpeed.value));
+        });
+        refs.voicevoxVoice.addEventListener('change', () => {
+            const voice = state.voicevoxVoices.find(item => String(item.id) === refs.voicevoxVoice.value);
+            if (voice) selectVoicevoxVoice(voice);
+        });
+        refs.voicevoxUrl.addEventListener('change', () => {
+            try {
+                const url = validateVoicevoxUrl(refs.voicevoxUrl.value);
+                refs.voicevoxUrl.value = url;
+                setSetting(STORAGE_KEYS.VOICEVOX_URL, url);
+            } catch (error) {
+                setPanelMessageFromError(error);
+            }
+        });
+        refs.voicevoxButton.addEventListener('click', () => void handleVoicevox());
+        refs.voicevoxLoad.addEventListener('click', () => void handleVoicevox(true));
         refs.fallbackRate.value = String(getFallbackRate());
         populateLanguageOptions(refs.languageSelect);
 
@@ -5513,6 +6227,12 @@
         const refs = state.refs;
         refs.title.textContent = t('panelTitle');
         refs.chooseAudioButton.textContent = t('chooseAudio');
+        for (const [role, key] of [['voicevox-title', 'voicevox'], ['voicevox-voice-label', 'voicevoxVoice'],
+            ['voicevox-speed-label', 'voicevoxSpeed'], ['voicevox-url-label', 'voicevoxUrl']]) {
+            state.panel.querySelector(`[data-role="${role}"]`).textContent = t(key);
+        }
+        refs.voicevoxLoad.textContent = t('voicevoxLoad');
+        renderVoicevoxControls();
         refs.fileInput.title = t('chooseFile');
         refs.fileInput.setAttribute('aria-label', t('chooseFile'));
         refs.saveButton.textContent = t('save');
@@ -6448,6 +7168,7 @@
         state.refs.backButton.disabled = busy;
         state.refs.fallbackRate.disabled = busy;
         state.refs.languageSelect.disabled = busy;
+        renderVoicevoxControls();
         if (key !== undefined) setPanelMessage(key, vars);
         else renderPanelMessage();
     }
@@ -6566,6 +7287,7 @@
 
         const refs = state.refs;
         renderPanelMessage();
+        renderVoicevoxControls();
         refs.mainView.hidden = state.adminMode;
         refs.adminView.hidden = !state.adminMode;
         state.panel.classList.toggle('bp-local-audio-panel--admin', state.adminMode);
@@ -6762,6 +7484,26 @@
         }
         #bp-local-audio-panel .bp-local-audio__admin-view {
             justify-content: center;
+        }
+        #bp-local-audio-panel .bp-local-audio__voicevox-settings {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            flex: 1 1 100%;
+            min-width: 0;
+        }
+        #bp-local-audio-panel .bp-local-audio__voicevox-settings label {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            max-width: 100%;
+        }
+        #bp-local-audio-panel .bp-local-audio__voicevox-settings select,
+        #bp-local-audio-panel .bp-local-audio__voicevox-settings input {
+            min-width: 0;
+            max-width: 18rem;
         }
         #bp-local-audio-panel [data-role="clean"][data-confirm="true"] {
             font-weight: 700;
@@ -6967,6 +7709,7 @@
     // This teardown permanently releases resources. Using pagehide would leave
     // a back/forward-cache restore half-initialized, so reserve it for beforeunload.
     window.addEventListener('beforeunload', () => {
+        cancelVoicevox(false);
         navigator.mediaDevices?.removeEventListener?.('devicechange', onMicrophoneDeviceChange);
         if (state.compressionJob) {
             state.compressionJob.cancelled = true;
