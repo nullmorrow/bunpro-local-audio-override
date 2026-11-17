@@ -4774,6 +4774,10 @@
 
     async function playSourcePreview(selectedFile, isCurrent = () => true) {
         stopLocalAudio();
+        // An explicit preview replaces any BunPro P cycle (its audio is paused below);
+        // a lingering native route would otherwise close the preview player at once.
+        releasePRoute({ resetNative: true });
+        clearNativePClickPassthrough();
         releasePreviewObjectUrl();
         const objectUrl = await loadSourcePreviewObjectUrl(selectedFile);
         if (!isCurrent()) {

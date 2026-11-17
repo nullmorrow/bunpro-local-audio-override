@@ -203,6 +203,13 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         await api.handleTest();
         check(state.playerOpen && state.audio?.src === state.previewObjectUrl && state.panelMessage.key === 'testStarted',
             'Test of the selected file keeps its preview without an override');
+        // After P has played BunPro's own audio on a sentence without an override, the native
+        // route can outlive that audio; an explicit preview must still play.
+        api.markNativePIntent();
+        await api.handleTest();
+        api.renderPanel();
+        check(!api.isNativePRoute() && state.playerOpen && state.audio?.src === state.previewObjectUrl,
+            'preview after a native P cycle ends that cycle and keeps playing');
         check(state.voicevoxVoices.map(voice => voice.id).join() === '3,12',
             'talk and streaming_talk styles are voices; singing styles are not');
         await api.handleSave();
