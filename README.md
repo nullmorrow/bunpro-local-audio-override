@@ -69,6 +69,12 @@ pressing P you have a moment before the sentence starts; it stays the same at
 any speed. Only addresses on this computer
 (`127.0.0.1`, `localhost` or `[::1]`) are accepted.
 
+Voices you have generated with appear as **Recent voices** buttons below the
+panel controls (up to 8, about two rows). Select one to generate the sentence in
+that voice; it also becomes the default for the **VOICEVOX** button and is
+highlighted. Buttons keep their order; when the list is full, the least recently
+used voice is replaced.
+
 **Reading check:** VOICEVOX sometimes misreads kanji (for example 辛い as つらい
 instead of からい). The script first generates from the original text, which
 keeps natural word boundaries and pitch accent, and compares VOICEVOX's reading
