@@ -19,7 +19,7 @@ INJECTION = """
         buildVoicevoxText, buildVoicevoxKana, state, t, handleVoicevox, cancelVoicevox,
         ensureStateMatchesPage, handleSave, handleTest, renderPanel, markNativePIntent, isNativePRoute, validateVoicevoxUrl, getSetting, setSetting, STORAGE_KEYS,
         getVoicevoxSpeed, resetForSentence, getRecentVoicevoxVoices, rememberVoicevoxVoice,
-        shortVoicevoxLabel,
+        shortVoicevoxLabel, ensureLocalPlayerWrapper, releaseLocalPlayerWrapper, positionPanel,
         close: async () => { cancelVoicevox(false); releaseRecordingResources();
             releaseLocalOverrideUi(); releaseObjectUrl(); releasePreviewObjectUrl();
             if (state.dbPromise) (await state.dbPromise).close(); }};

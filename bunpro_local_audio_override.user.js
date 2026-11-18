@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BunPro Local Audio Override
 // @namespace    bunpro.local-audio-override.serverless
-// @version      0.6.2.0
+// @version      0.6.2.1
 // @description  Store per-sentence audio overrides in your browser and practise speaking with P-to-record / O-to-review. No local server or upload required.
 // @description:zh-CN  把逐句自定义音频保存在浏览器中，在 BunPro 复习时播放，并通过 P 键录音、O 键回听。无需本地服务，也不会上传音频。
 // @description:zh-TW  把逐句自訂音訊保存在瀏覽器中，在 BunPro 複習時播放，並透過 P 鍵錄音、O 鍵回聽。無需本機服務，也不會上傳音訊。
@@ -44,7 +44,7 @@
         BACKUP_ENTRY_MAX_BYTES: Math.ceil(50 * 1024 * 1024 / 3) * 4 + 1024 * 1024,
         BACKUP_MEMBER_MAX_BYTES: 1024 * 1024,
         IMPORT_BATCH_BYTES: 32 * 1024 * 1024,
-        SCRIPT_VERSION: '0.6.2.0',
+        SCRIPT_VERSION: '0.6.2.1',
         CLEAN_CONFIRM_TIMEOUT_MS: 10000,
         COMPRESSION_START_TIMEOUT_MS: 10000,
         DEFAULT_FALLBACK_RATE: 1.0,
@@ -2593,7 +2593,12 @@
 
         const answer = findQuizAnswerContainer();
         if (!answer?.parentElement) return null;
-        return { parent: answer.parentElement, anchor: answer };
+        // A sentence without BunPro audio has no native player, so the Undo /
+        // Show Info / Alternatives row sits directly above the console. Mount
+        // where the native player would be, above that row; the panel is placed
+        // above the player and would otherwise cover the row.
+        const actions = findQuizActionControlsAnchor();
+        return { parent: answer.parentElement, anchor: actions?.parentElement === answer.parentElement ? actions : answer };
     }
 
     function getSentenceRoot() {
