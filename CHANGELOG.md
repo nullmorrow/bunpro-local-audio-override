@@ -1,5 +1,13 @@
 # BunPro Local Audio Override — Greasy Fork Changelog
 
+## 0.6.2.1 — 2026-11-18
+
+- 修复：没有 BunPro 原音的句子保存本地音频后，面板会盖住 BunPro 的 Undo / Show Info / Alternatives 控制行。现在播放器出现在那一行上方，与有原音的句子一致。
+
+### English release summary
+
+- Fixed: after saving a clip for a sentence without BunPro audio, the panel covered BunPro's Undo / Show Info / Alternatives row. The player now appears above that row, as on sentences with BunPro audio.
+
 ## 0.6.2.0 — 2026-11-18
 
 - 新增 VOICEVOX 按钮：本机运行 VOICEVOX 时，一键生成当前句子的音频，自动试听，满意后保存。Admin 中可设置默认音色、语速、开头静音（默认 0.5 秒，按 P 后留出反应时间再跟读）和引擎地址（仅限本机地址）。用过的音色会显示为“最近音色”按钮（最多 8 个），点一下即用该音色生成，并设为默认音色。首次使用需在 VOICEVOX 的 `http://127.0.0.1:50021/setting` 中把 `https://bunpro.jp` 加入 Allow Origin 并重启 VOICEVOX。

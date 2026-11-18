@@ -120,6 +120,7 @@ window.runVoicevoxRegression = async fixtures => {
         equal(api.buildVoicevoxText(spaced, api.alignVoicevoxReading(spaced, "エエイチニ'/ホネ'デ_ス")),
             '  Ａ１２ ほん\nです。 ', 'level 2 preserves other characters and whitespace');
         await runVoicevoxFlowRegression(fixtures, checks);
+        runSyntheticPlayerPlacementRegression(check);
         return {ok: true, checks};
     } catch (error) {
         return {ok: false, checks, error: String(error) + '\n' + (error.stack || '')};
@@ -334,4 +335,38 @@ async function runVoicevoxFlowRegression(fixtures, checks) {
         window.fetch = originalFetch;
         api.cancelVoicevox(false);
     }
+}
+
+function runSyntheticPlayerPlacementRegression(check) {
+    // Footer layout for a sentence without BunPro audio: no native player, the
+    // Undo / Show Info / Alternatives row directly above .bp-quiz-console.
+    const api = window.__voicevoxTest;
+    const { state } = api;
+    api.releaseLocalPlayerWrapper();
+    const answer = document.querySelector('#js-tour-quiz-answer');
+    const quiz = document.createElement('div');
+    quiz.id = 'js-quiz';
+    const footer = document.createElement('div');
+    footer.style.marginTop = '400px'; // room for the panel above the player
+    const actions = document.createElement('ul');
+    actions.innerHTML = '<li><button type="button">Undo</button></li><li><button type="button">Show Info</button></li>';
+    answer.removeAttribute('id');
+    answer.classList.add('bp-quiz-console');
+    answer.before(quiz);
+    quiz.append(footer);
+    footer.append(actions, answer);
+    const wrapper = api.ensureLocalPlayerWrapper();
+    check(wrapper?.parentElement === footer && wrapper.nextElementSibling === actions,
+        'a player for a sentence without BunPro audio mounts above the action row');
+    // As after Save: the open player is the panel anchor.
+    state.playerOpen = true;
+    wrapper.className = '';
+    state.panel.hidden = false;
+    api.positionPanel();
+    const panelBottom = state.panel.getBoundingClientRect().bottom;
+    check(panelBottom <= wrapper.getBoundingClientRect().top + 1 &&
+        panelBottom <= actions.getBoundingClientRect().top + 1,
+        'the panel above that player leaves the action row uncovered');
+    state.playerOpen = false;
+    api.releaseLocalPlayerWrapper();
 }
