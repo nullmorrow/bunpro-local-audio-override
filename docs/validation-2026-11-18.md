@@ -4,9 +4,9 @@ Date: November 18, 2026 (Australia/Sydney).
 
 ## Tested source
 
-- Userscript version: **0.6.2.0**.
+- Userscript version: **0.6.2.1** (0.6.2.0 plus a panel layout fix).
 - SHA-256 of the UTF-8, LF userscript:
-  `24a37dca47c0689ebc2637f43adc867553ef3262dc80b2c32cdf9667503053a1`.
+  `90d9d888258723a206ddc104b33eb93c7bf71d450c60125b93cb0e8e8be92657`.
 - No playback, recording, storage, installation or backup identifiers were changed.
   The `.bpao` v1 format, database and existing settings are unchanged.
 
@@ -21,7 +21,7 @@ All browser checks used fresh headless profiles, generated audio and test double
 No personal browser profile, real microphone or personal audio library was used.
 
 The full runner exited **0**, with **21 of 21 checks passed**, in about
-**235 seconds**. These are runner checks, not 21 independent end-to-end user
+**237 seconds**. These are runner checks, not 21 independent end-to-end user
 sessions.
 
 | Check | Firefox | Chrome |
@@ -40,7 +40,7 @@ ESLint, JavaScript syntax and all-language key/placeholder checks also passed.
 
 ## What the new checks cover
 
-- **Reading check (334 assertions per browser).** Twelve sentences with
+- **VOICEVOX checks (336 assertions per browser).** Reading check: twelve sentences with
   BunPro-style ruby markup are checked against `audio_query` readings recorded
   from a real VOICEVOX Engine 0.25.2: per-kanji and per-word furigana, particles
   は/を/へ, long vowels, numerals, quotes, kanji without furigana and sentences
@@ -56,6 +56,10 @@ ESLint, JavaScript syntax and all-language key/placeholder checks also passed.
 - **Preview fix.** A Test or VOICEVOX preview keeps playing on a sentence without
   an override, including after P has played BunPro's own audio; this check
   failed before the fix.
+- **Player position without BunPro audio (0.6.2.1).** On a footer with no native
+  player, the player added after Save is placed above the Undo / Show Info /
+  Alternatives row, and the panel above it leaves that row uncovered; this check
+  failed before the fix.
 
 ## Real engine and live page
 
@@ -67,7 +71,8 @@ and generated clips started speaking about 0.52–0.55 s in with the default
 0.5 s lead-in. Engine 0.26.2 reports reading voices as `streaming_talk`, which is
 now accepted. The feature was also tried by the maintainer on the live BunPro
 review page in Firefox after adding `https://bunpro.jp` to the engine's Allow
-Origin setting.
+Origin setting. The 0.6.2.1 layout fix was also tried there in Firefox on a
+sentence without BunPro audio.
 
 ## Limits
 
